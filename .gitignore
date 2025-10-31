@@ -1,0 +1,220 @@
+# ==============================================================================
+# ESSENTIAL FILES TO KEEP (NOT IGNORED):
+# - app.py (Streamlit UI)
+# - runner.py (Benchmark runner)
+# - requirements.txt (Dependencies)
+# - run.sh (Run script)
+# - setup_docker.sh (Setup script)
+# - benchmarks/ (Core benchmark implementations)
+# - models/ (Model adapters)
+# - Documentation/ (User documentation)
+# - scripts/run_single.py (Helper script)
+# ==============================================================================
+
+# Python cache and compiled files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.pyc
+
+# Build and distribution
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+.venv/
+virtualenv/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*.swn
+*~
+.project
+.pydevproject
+.settings/
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+**/.DS_Store
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb
+
+# Testing
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+.hypothesis/
+coverage.xml
+*.cover
+.cache
+nosetests.xml
+
+# Logs and Reports (Generated content)
+logs/
+reports/
+swebench_reports/
+*.log
+*.log.*
+
+# All test files (keep only production code)
+test_*.py
+*_test.py
+test.py
+tests/
+
+# Debug files (development only)
+debug_*.py
+diagnose_*.py
+inspect_*.py
+check_*.py
+analyze_*.py
+generate_*.py
+
+# Demo files (examples, not needed for production)
+demo_*.py
+
+# Generated outputs
+outputs/
+checkpoints/
+predictions/
+results/
+
+# Model artifacts
+*.ckpt
+*.pth
+*.pt
+*.pkl
+*.joblib
+*.h5
+*.pb
+
+# Dataset cache
+.cache/
+*.cache
+~/.cache/huggingface/
+.huggingface/
+datasets/
+
+# Docker artifacts
+*.tar
+*.tar.gz
+docker-compose.override.yml
+
+# Temporary files
+*.tmp
+*.temp
+tmp/
+temp/
+.temp/
+
+# Environment and secrets
+.env
+.env.local
+.env.*.local
+.envrc
+*.env
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Backups
+*.bak
+*.backup
+*.old
+*.orig
+
+# Streamlit
+.streamlit/secrets.toml
+.streamlit/credentials.toml
+
+# SWE-bench repository (external dependency)
+# Keep the repo but ignore its generated content
+SWE-bench/
+!SWE-bench/swebench/
+SWE-bench/**/.git/
+SWE-bench/**/__pycache__/
+SWE-bench/**/logs/
+SWE-bench/**/outputs/
+SWE-bench/**/*.pyc
+SWE-bench/**/.pytest_cache/
+
+# Analysis and development markdown files
+*_ANALYSIS.md
+*_ENHANCEMENTS.md
+*_SUMMARY.md
+SIMPLE_SUMMARY.md
+PARSER_ENHANCEMENTS.md
+HUMANEVAL_1_ANALYSIS.md
+
+# Helper/checker scripts (development only)
+check_*.py
+
+# Ignore all top-level Markdown files (keep README and Documentation directory)
+*.md
+!README.md
+!Documentation/
+
+# Lock files (optional - uncomment if you want to ignore)
+# poetry.lock
+# Pipfile.lock
+
+# Generated documentation builds
+docs/_build/
+docs/.doctrees/
+site/
+
+# Large files and datasets (should be downloaded separately)
+*.csv
+*.json.gz
+*.jsonl.gz
+*.parquet
+
+# Evaluation artifacts
+*.jsonl
+gold.*.json
+!requirements.txt
+
+# Script outputs
+scripts/__pycache__/
+scripts/*.pyc
+scripts/*.log

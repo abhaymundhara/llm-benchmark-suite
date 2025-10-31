@@ -1,0 +1,8 @@
+streamlit>=1.29
+pandas>=2.1
+requests>=2.31
+python-dotenv>=1.0
+openai>=1.12
+anthropic>=0.25
+google-generativeai>=0.5
+datasets>=2.16
