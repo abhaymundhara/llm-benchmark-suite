@@ -1,6 +1,12 @@
-# LLM Benchmark Suite
+# llm-benchmark-suite
 
-A comprehensive benchmarking system for evaluating Large Language Models on coding tasks, featuring a Streamlit UI and support for multiple benchmark datasets.
+A comprehensive benchmark suite for evaluating Large Language Models on coding tasks (HumanEval, MBPP, SWE-bench, BigCodeBench). Includes an interactive Streamlit UI, support for cloud and local models, and detailed reporting for pass rates, latency, and token usage.
+
+Repository: https://github.com/abhaymundhara/llm-benchmark-suite
+
+Quick links
+- Documentation: `Documentation/`
+- Issues / PRs: use the GitHub repo above
 
 ## 🎯 Features
 
@@ -10,63 +16,39 @@ A comprehensive benchmarking system for evaluating Large Language Models on codi
 - **Detailed Metrics**: Pass rates, latency, token usage, and cost tracking
 - **Comprehensive Reports**: JSON and text summaries with task-level details
 
-## 🚀 Quick Start
+## 🚀 Quickstart
 
-### 1. Install Dependencies
+1) Install dependencies
 
 ```bash
-pip install -r requirements.txt
+python3 -m pip install -r requirements.txt
 ```
 
-### 2. Run Streamlit UI
+2) Run the Streamlit UI (recommended for interactive use)
 
 ```bash
 streamlit run app.py
 ```
 
-### 3. Or Use Command Line
+3) Run a quick CLI benchmark (example)
 
 ```bash
-python runner.py --model ollama:qwen2.5-coder:7b --benchmark human_eval --limit 10
+python3 runner.py --model ollama:qwen2.5-coder:7b --benchmark bigcodebench --limit 5
 ```
 
-## 📁 Project Structure
+Notes
+- For cloud models set API keys in environment variables (OPENAI_API_KEY, ANTHROPIC_API_KEY, etc.)
+- Use `setup_docker.sh` to prepare SWE-bench Docker images when evaluating SWE-bench tasks.
 
-```
-├── app.py                      # Streamlit UI
-├── runner.py                   # CLI benchmark runner
-├── requirements.txt            # Python dependencies
-├── run.sh                      # Quick run script
-├── setup_docker.sh            # Docker setup for SWE-bench
-│
-├── benchmarks/                 # Benchmark implementations
-│   ├── __init__.py            # Registry
-│   ├── base.py                # Base classes
-│   ├── humaneval.py           # HumanEval benchmark
-│   ├── mbpp.py                # MBPP benchmark
-│   ├── bigcodebench.py        # BigCodeBench benchmark
-│   ├── swe_bench.py           # SWE-bench demo
-│   ├── swe_bench_full.py      # SWE-bench full dataset
-│   └── swe_bench_official.py  # SWE-bench official evaluation
-│
-├── models/                     # Model adapters
-│   ├── __init__.py            # Model registry
-│   ├── base.py                # Base adapter
-│   ├── openai_adapter.py      # OpenAI models
-│   ├── claude_adapter.py      # Anthropic Claude
-│   ├── gemini_adapter.py      # Google Gemini
-│   └── ollama_adapter.py      # Ollama (local)
-│
-├── scripts/                    # Helper scripts
-│   └── run_single.py          # Run single task
-│
-└── Documentation/              # User guides
-    ├── QUICKSTART.md
-    ├── INSTALLATION.md
-    ├── DATASETS.md
-    ├── BIGCODEBENCH.md
-    └── ...
-```
+## 📁 Project layout (important files)
+
+- `app.py` — Streamlit UI
+- `runner.py` — CLI benchmark runner
+- `requirements.txt` — Dependencies
+- `setup_docker.sh` / `run.sh` — helper scripts
+- `benchmarks/` — benchmark implementations (HumanEval, MBPP, BigCodeBench, SWE-bench variants)
+- `models/` — model adapters for OpenAI, Claude, Gemini, Ollama
+- `Documentation/` — user guides and dataset notes
 
 ## 🎮 Available Benchmarks
 
@@ -94,7 +76,7 @@ python runner.py --model ollama:qwen2.5-coder:7b --benchmark human_eval --limit 
 - Repository-level code changes
 - Requires Docker for evaluation
 
-## 🤖 Supported Models
+## 🤖 Supported models
 
 ### Cloud APIs
 
@@ -117,7 +99,7 @@ python runner.py --model ollama:qwen2.5-coder:7b --benchmark human_eval --limit 
 - **Cost**: Estimated API costs (for cloud models)
 - **Failure Analysis**: Categorized error types
 
-## 🔧 Configuration
+## 🔧 Configuration & setup
 
 ### Environment Variables
 
@@ -129,15 +111,13 @@ export ANTHROPIC_API_KEY="your-key"
 export GOOGLE_API_KEY="your-key"
 ```
 
-### Ollama Setup
-
-For local models:
+### Ollama (local) example
 
 ```bash
-# Install Ollama
+# Install Ollama (if needed)
 curl -fsSL https://ollama.ai/install.sh | sh
 
-# Pull a model
+# Pull a coder model
 ollama pull qwen2.5-coder:7b
 ```
 
@@ -151,13 +131,12 @@ See the `Documentation/` folder for detailed guides:
 - [BigCodeBench Guide](Documentation/BIGCODEBENCH.md)
 - [SWE-bench Setup](Documentation/SWE_BENCH_SETUP.md)
 
-## 🧪 Running Tests
+## 🧪 Tests & development
 
-The test files are excluded from the repository. For development:
+Test files and debug scripts are excluded from the default repository layout to keep the project lightweight. To run small checks locally you can create a short ad-hoc command, for example:
 
 ```bash
-# Example: Test HumanEval
-python -c "from benchmarks import registry; b = registry.create('human_eval', limit=3); print(list(b.load_tasks()))"
+python3 -c "from benchmarks import registry; b = registry.create('bigcodebench', limit=3); print([t.task_id for t in b.load_tasks()])"
 ```
 
 ## 📝 Output
@@ -169,11 +148,13 @@ Results are saved to `reports/` directory:
 
 ## 🤝 Contributing
 
-This is a benchmarking tool. To add new benchmarks:
+Contributions welcome. Short checklist:
 
-1. Create a new file in `benchmarks/`
-2. Extend the `Benchmark` base class
-3. Register in `benchmarks/__init__.py`
+1. Add a benchmark file in `benchmarks/` extending `Benchmark`.
+2. Add/register it in `benchmarks/__init__.py`.
+3. Add docs in `Documentation/` describing dataset and prompt style.
+
+Consider opening a pull request with a small example run and expected metrics.
 
 ## 📄 License
 
