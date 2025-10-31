@@ -189,9 +189,11 @@ HUMANEVAL_1_ANALYSIS.md
 # Helper/checker scripts (development only)
 check_*.py
 
-# Ignore all top-level Markdown files (keep README and Documentation directory)
+# Ignore all top-level Markdown files (keep README, report, research article, and Documentation directory)
 *.md
 !README.md
+!report.md
+!preliminary_research_article.md
 !Documentation/
 
 # Lock files (optional - uncomment if you want to ignore)
