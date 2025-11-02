@@ -1029,17 +1029,23 @@ class Benchmark(abc.ABC):
         if not prompt:
             return code
 
+        # Extract imports from prompt
         prompt_imports = Benchmark._extract_import_lines(prompt)
-        if not prompt_imports:
-            return code
-
+        
+        # Extract helper functions from prompt (functions that are not the main entry point)
+        prompt_helper_functions = Benchmark._extract_helper_functions(prompt, code)
+        
         code_imports = set(Benchmark._extract_import_lines(code))
         missing_imports = [imp for imp in prompt_imports if imp not in code_imports]
-        if not missing_imports:
+        
+        # Combine missing imports and helper functions
+        prefix_code = missing_imports + prompt_helper_functions
+        
+        if not prefix_code:
             return code
 
         if not code.strip():
-            return "\n".join(missing_imports)
+            return "\n".join(prefix_code)
 
         lines = code.splitlines()
         insert_idx = 0
@@ -1049,12 +1055,46 @@ class Benchmark(abc.ABC):
         if insert_idx < len(lines) and lines[insert_idx].strip().startswith(('"""', "'''")):
             insert_idx = Benchmark._find_docstring_end(lines, insert_idx) + 1
 
-        insertion_block = missing_imports[:]
+        insertion_block = prefix_code[:]
         if insert_idx < len(lines) and lines[insert_idx].strip():
             insertion_block.append("")
 
         new_lines = lines[:insert_idx] + insertion_block + lines[insert_idx:]
         return "\n".join(new_lines).strip()
+    
+    @staticmethod
+    def _extract_helper_functions(prompt: str, code: str) -> List[str]:
+        """Extract helper functions from prompt that are not already in the code."""
+        helper_functions = []
+        
+        # Only extract functions that have proper Python syntax
+        try:
+            tree = ast.parse(prompt)
+        except SyntaxError:
+            # If prompt isn't valid Python, can't extract functions
+            return []
+        
+        # Find all function names already in the code
+        code_func_names = set()
+        for match in re.finditer(r'def\s+(\w+)\s*\(', code):
+            code_func_names.add(match.group(1))
+        
+        # Extract function definitions from the parsed AST
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef):
+                func_name = node.name
+                if func_name not in code_func_names:
+                    # Get the source code for this function
+                    # Find the function in the original prompt text
+                    func_pattern = re.compile(
+                        rf'^\s*def\s+{re.escape(func_name)}\s*\([^)]*\).*?(?=^\s*(?:def\s+|class\s+|\Z))',
+                        re.MULTILINE | re.DOTALL
+                    )
+                    match = func_pattern.search(prompt)
+                    if match:
+                        helper_functions.append(match.group(0).strip())
+        
+        return helper_functions
 
     @staticmethod
     def _extract_import_lines(source: str) -> List[str]:

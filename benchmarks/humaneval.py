@@ -25,10 +25,22 @@ class HumanEvalBenchmark(Benchmark):
         dataset = self._load_dataset()
         tasks: List[BenchmarkTask] = []
         for record in dataset:
+            # Remove METADATA section from tests
+            test_code = record['test'].strip()
+            # Remove METADATA block if present
+            if 'METADATA' in test_code:
+                # Split by 'def check' and keep only the check function
+                parts = test_code.split('def check')
+                if len(parts) > 1:
+                    test_code = 'def check' + parts[1]
+            
+            # Format prompt: You are an expert python programmer. Here is your task: [prompt]\n\nYour code should pass these tests:\n\n{tests}
+            formatted_prompt = f"You are an expert python programmer. Here is your task: {record['prompt']}\n\nYour code should pass these tests:\n\n{test_code}\n \nOnly output the code"
+            
             tasks.append(
                 BenchmarkTask(
                     task_id=record["task_id"],
-                    prompt=record["prompt"],
+                    prompt=formatted_prompt,
                     tests=record["test"],
                     entry_point=record["entry_point"],
                     metadata={

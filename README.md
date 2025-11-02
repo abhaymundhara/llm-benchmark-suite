@@ -5,6 +5,7 @@ A comprehensive benchmark suite for evaluating Large Language Models on coding t
 Repository: https://github.com/abhaymundhara/llm-benchmark-suite
 
 Quick links
+
 - Documentation: `Documentation/`
 - Issues / PRs: use the GitHub repo above
 
@@ -18,25 +19,26 @@ Quick links
 
 ## 🚀 Quickstart
 
-1) Install dependencies
+1. Install dependencies
 
 ```bash
 python3 -m pip install -r requirements.txt
 ```
 
-2) Run the Streamlit UI (recommended for interactive use)
+2. Run the Streamlit UI (recommended for interactive use)
 
 ```bash
 streamlit run app.py
 ```
 
-3) Run a quick CLI benchmark (example)
+3. Run a quick CLI benchmark (example)
 
 ```bash
 python3 runner.py --model ollama:qwen2.5-coder:7b --benchmark bigcodebench --limit 5
 ```
 
 Notes
+
 - For cloud models set API keys in environment variables (OPENAI_API_KEY, ANTHROPIC_API_KEY, etc.)
 - Use `setup_docker.sh` to prepare SWE-bench Docker images when evaluating SWE-bench tasks.
 

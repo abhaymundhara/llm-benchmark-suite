@@ -77,7 +77,7 @@ class MBPPBenchmark(Benchmark):
         return None
 
     @staticmethod
-    def _build_prompt(description: str, tests: str, code: str) -> str:
+    def _build_prompt(description: str, tests: str) -> str:
         header = "You are an expert Python programmer, and here is your task:"
         prompt = f"{header}{description.strip()}\n\nYour code should pass these tests:\n\n{tests.strip()}\n"
         return prompt
