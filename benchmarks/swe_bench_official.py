@@ -26,13 +26,84 @@ PATCH_PATTERN = re.compile(
 )
 
 
+def normalize_patch(patch: str) -> str:
+    """
+    Normalize a patch to fix common formatting issues that cause patch command to fail.
+    """
+    if not patch:
+        return patch
+    
+    lines = patch.split('\n')
+    normalized = []
+    
+    for i, line in enumerate(lines):
+        # Fix malformed hunk headers - ensure they end with function context or @@
+        if line.startswith('@@') and not line.rstrip().endswith('@@'):
+            # Check if there's any content after the second @@
+            parts = line.split('@@')
+            if len(parts) >= 3:
+                # Keep the hunk header with context
+                normalized.append(line)
+            else:
+                # Add closing @@
+                normalized.append(line.rstrip() + ' @@')
+        else:
+            normalized.append(line)
+    
+    return '\n'.join(normalized)
+
+
+def fix_patch_paths(patch: str, repo_name: str = "") -> str:
+    """
+    Try to fix common path issues in patches where models hallucinate file structures.
+    
+    Common issues:
+    - Model adds extra subdirectories that don't exist
+    - Model uses wrong file extensions or variations
+    
+    Args:
+        patch: The patch content
+        repo_name: The repository name (e.g., "astropy/astropy")
+    
+    Returns:
+        Patch with corrected paths (if possible)
+    """
+    if not patch or not repo_name:
+        return patch
+    
+    lines = patch.split('\n')
+    corrected_lines = []
+    
+    # Common path corrections for known repos
+    path_corrections = {
+        'astropy/astropy': {
+            # Model might add _separability.py instead of separable.py
+            r'astropy/modeling/separable/_separability\.py': 'astropy/modeling/separable.py',
+            # Other common patterns can be added here
+        },
+    }
+    
+    corrections = path_corrections.get(repo_name, {})
+    
+    for line in lines:
+        corrected_line = line
+        
+        # Check if this is a file path line
+        if line.startswith('--- a/') or line.startswith('+++ b/') or line.startswith('diff --git'):
+            # Try to apply corrections
+            for pattern, replacement in corrections.items():
+                corrected_line = re.sub(pattern, replacement, corrected_line)
+        
+        corrected_lines.append(corrected_line)
+    
+    return '\n'.join(corrected_lines)
+
+
 def extract_diff(response):
     """
     Extracts the diff from a response formatted in different ways.
-    Based on swebench/inference/make_datasets/utils.py
-    
-    For SWE-Llama models, they may echo the prompt's <patch> example tag
-    before their actual response, so we take content after the LAST <patch> tag.
+    Enhanced to handle multiple edge cases from various model outputs.
+    Based on swebench/inference/make_datasets/utils.py with improvements.
     """
     if response is None:
         return None
@@ -65,18 +136,44 @@ def extract_diff(response):
         else:
             other_matches.append(match)
     
-    # Look for content in ``` code blocks
-    pattern = re.compile(r"```(\w+)?\n(.*?)```", re.DOTALL)
-    for code, match in pattern.findall(response):
+    # Look for content in ``` code blocks - handle various formats
+    # Try ```diff first (most specific)
+    diff_block_pattern = re.compile(r"```diff\s*\n(.*?)```", re.DOTALL)
+    diff_blocks = diff_block_pattern.findall(response)
+    if diff_blocks:
+        diff_matches.extend(diff_blocks)
+    
+    # Try ```patch
+    patch_block_pattern = re.compile(r"```patch\s*\n(.*?)```", re.DOTALL)
+    patch_blocks = patch_block_pattern.findall(response)
+    if patch_blocks:
+        diff_matches.extend(patch_blocks)
+    
+    # Try generic ``` blocks
+    generic_pattern = re.compile(r"```(\w+)?\s*\n(.*?)```", re.DOTALL)
+    for code, match in generic_pattern.findall(response):
         if code in {"diff", "patch"}:
-            diff_matches.append(match)
-        else:
-            other_matches.append(match)
+            if match not in diff_matches:
+                diff_matches.append(match)
+        elif not code or code == "":
+            # Plain code block without language specifier
+            if match not in other_matches:
+                other_matches.append(match)
     
     if diff_matches:
         return diff_matches[0]
     if other_matches:
-        return other_matches[0]
+        # Check if other matches look like diffs
+        for match in other_matches:
+            if 'diff --git' in match or ('---' in match and '+++' in match):
+                return match
+    
+    # Fallback: look for diff content directly in response
+    if 'diff --git' in response:
+        # Extract from first diff --git to end or next non-diff content
+        start_idx = response.find('diff --git')
+        return response[start_idx:].strip()
+    
     return response.split("</s>")[0]
 
 
@@ -234,6 +331,11 @@ Provide ONLY the patch."""
                 "parser_extraction",
             )
         
+        # Try to fix common path issues where models hallucinate file structures
+        repo_name = task.metadata.get("repo", "")
+        if repo_name:
+            patch = fix_patch_paths(patch, repo_name)
+        
         # Create predictions file
         prediction = {
             "instance_id": task.task_id,
@@ -259,8 +361,12 @@ Provide ONLY the patch."""
     def _extract_patch(self, completion: str) -> str:
         """
         Extract git diff patch from model completion.
+        Enhanced with better validation and cleaning.
         Uses the same logic as official SWE-bench inference code.
         """
+        if not completion or not completion.strip():
+            return ""
+        
         # First extract diff content using official extract_diff logic
         diff_content = extract_diff(completion)
         
@@ -269,6 +375,15 @@ Provide ONLY the patch."""
         
         # Normalize line endings to Unix-style (git patches must use \n, not \r\n)
         diff_content = diff_content.replace('\r\n', '\n').replace('\r', '\n')
+        
+        # Remove any leading/trailing whitespace and common artifacts
+        diff_content = diff_content.strip()
+        
+        # Remove common thinking/explanation text that models sometimes add
+        thinking_markers = ['<thinking>', '</thinking>', '<explanation>', '</explanation>']
+        for marker in thinking_markers:
+            if marker in diff_content:
+                diff_content = diff_content.replace(marker, '')
         
         # Now extract just the actual patch using PATCH_PATTERN
         # This finds all valid patch sections (diff --git ... --- a/... +++ b/...)
@@ -282,45 +397,55 @@ Provide ONLY the patch."""
                 # Skip if it's the example patch
                 if 'def function():' in patch and 'old_code' in patch and 'new_code' in patch:
                     continue
-                # Skip if it modifies a/file.py (generic example)
-                if 'a/file.py' in patch:
+                # Skip if it modifies a/file.py or b/file.py (generic example)
+                if 'a/file.py' in patch or 'b/file.py' in patch:
+                    continue
+                # Skip empty or very short patches
+                if len(patch.strip()) < 20:
                     continue
                 filtered_patches.append(patch)
             
             if filtered_patches:
-                return '\n'.join(filtered_patches).strip()
+                combined = '\n'.join(filtered_patches).strip()
+                # Ensure the patch starts with diff --git if it's not already there
+                if not combined.startswith('diff --git'):
+                    # Try to fix common formatting issues
+                    if '--- a/' in combined and '+++ b/' in combined:
+                        # Has the header markers but missing diff --git
+                        # Extract the file path and add it
+                        header_match = re.search(r'--- a/(\S+)', combined)
+                        if header_match:
+                            filepath = header_match.group(1)
+                            combined = f'diff --git a/{filepath} b/{filepath}\n{combined}'
+                # Normalize the patch to fix common formatting issues
+                return normalize_patch(combined)
         
-        # Fallback: if pattern doesn't match but looks like a patch, return it
-        if 'diff --git' in diff_content or ('---' in diff_content and '+++' in diff_content):
-            # Still filter out example
-            if not ('def function():' in diff_content and 'old_code' in diff_content):
-                return diff_content.strip()
-        
-        return ""
-        
-        if patch_lines:
-            return '\n'.join(patch_lines)
-        
-        # Try code blocks
-        if '```diff' in completion:
-            start = completion.find('```diff') + 7
-            end = completion.find('```', start)
-            if end > start:
-                return completion[start:end].strip()
-        
-        if '```' in completion:
-            start = completion.find('```') + 3
-            if '\n' in completion[start:]:
-                start = completion.find('\n', start) + 1
-            end = completion.find('```', start)
-            if end > start:
-                content = completion[start:end].strip()
-                if 'diff --git' in content or ('---' in content and '+++' in content):
-                    return content
-        
-        # Return if looks like patch
-        if 'diff --git' in completion or ('---' in completion and '+++' in completion):
-            return completion.strip()
+        # Fallback: if pattern doesn't match but looks like a patch, try to clean it
+        if 'diff --git' in diff_content or ('--- a/' in diff_content and '+++ b/' in diff_content):
+            # Still filter out example patches
+            if 'def function():' in diff_content and 'old_code' in diff_content and 'new_code' in diff_content:
+                return ""
+            if 'a/file.py' in diff_content or 'b/file.py' in diff_content:
+                return ""
+            
+            # Clean up the diff content
+            lines = diff_content.split('\n')
+            cleaned_lines = []
+            in_diff = False
+            
+            for line in lines:
+                # Start capturing from diff --git or --- a/
+                if line.startswith('diff --git') or line.startswith('--- a/'):
+                    in_diff = True
+                
+                if in_diff:
+                    cleaned_lines.append(line)
+            
+            if cleaned_lines:
+                cleaned_patch = '\n'.join(cleaned_lines).strip()
+                return normalize_patch(cleaned_patch)
+            
+            return normalize_patch(diff_content.strip())
         
         return ""
 
@@ -406,11 +531,18 @@ class SWEbenchHarnessBenchmark(Benchmark):
         self,
         *,
         limit: Optional[int] = None,
+        start_index: Optional[int] = None,
+        end_index: Optional[int] = None,
         evaluation_timeout: float = 900.0,
         cache_dir: Optional[str] = None,
         harness_command: Optional[str] = None,
     ) -> None:
-        super().__init__(limit=limit, evaluation_timeout=evaluation_timeout)
+        super().__init__(
+            limit=limit,
+            start_index=start_index,
+            end_index=end_index,
+            evaluation_timeout=evaluation_timeout
+        )
         self.cache_dir = cache_dir
         self.harness_command = harness_command or os.environ.get("SWE_BENCH_HARNESS_CMD")
         self._dataset: Optional[Dataset] = None

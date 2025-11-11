@@ -34,6 +34,8 @@ class BigCodeBenchmark(Benchmark):
         self,
         *,
         limit: Optional[int] = None,
+        start_index: Optional[int] = None,
+        end_index: Optional[int] = None,
         evaluation_timeout: float = 60.0,
         cache_dir: Optional[str] = None,
         split: str = "instruct",  # 'complete' or 'instruct'
@@ -44,12 +46,19 @@ class BigCodeBenchmark(Benchmark):
         
         Args:
             limit: Maximum number of tasks to load
+            start_index: Start task index (inclusive, 0-based)
+            end_index: End task index (inclusive, 0-based)
             evaluation_timeout: Timeout for test execution in seconds
             cache_dir: Directory to cache the dataset
             split: 'complete' for docstring-based or 'instruct' for NL instructions
             subset: 'full' for all tasks or 'hard' for challenging subset
         """
-        super().__init__(limit=limit, evaluation_timeout=evaluation_timeout)
+        super().__init__(
+            limit=limit,
+            start_index=start_index,
+            end_index=end_index,
+            evaluation_timeout=evaluation_timeout
+        )
         self.cache_dir = cache_dir
         self.split = split
         self.subset = subset

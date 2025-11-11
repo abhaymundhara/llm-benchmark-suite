@@ -15,12 +15,16 @@ class SWEBenchFull(SWEbenchHarnessBenchmark):
         self,
         *,
         limit: Optional[int] = None,
+        start_index: Optional[int] = None,
+        end_index: Optional[int] = None,
         evaluation_timeout: float = 1800.0,
         cache_dir: Optional[str] = None,
         harness_command: Optional[str] = None,
     ) -> None:
         super().__init__(
             limit=limit,
+            start_index=start_index,
+            end_index=end_index,
             evaluation_timeout=evaluation_timeout,
             cache_dir=cache_dir,
             harness_command=harness_command,

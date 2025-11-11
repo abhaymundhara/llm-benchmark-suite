@@ -176,10 +176,16 @@ def _render_report(report: BenchmarkReport) -> None:
 
 
 def run_benchmark_with_progress(runner: BenchmarkRunner, config: RunConfig) -> BenchmarkReport:
-    benchmark_preview = _load_benchmark_stub(config.benchmark_key, config.limit)
-    total_tasks = len(list(benchmark_preview.load_tasks()))
-    if config.limit is not None:
-        total_tasks = min(total_tasks, config.limit)
+    # Calculate total tasks based on config
+    all_tasks_preview = list(_load_benchmark_stub(config.benchmark_key, limit=None).load_tasks())
+    
+    if config.start_index is not None and config.end_index is not None:
+        total_tasks = config.end_index - config.start_index + 1
+    elif config.limit is not None:
+        total_tasks = min(config.limit, len(all_tasks_preview))
+    else:
+        total_tasks = len(all_tasks_preview)
+    
     st.write(f"Benchmark will run on **{total_tasks}** tasks.")
 
     progress_bar = st.progress(0, text="Starting benchmark...")
@@ -245,11 +251,50 @@ def main() -> None:
         model_name = st.sidebar.text_input("Model", "")
 
     benchmark_key = st.sidebar.selectbox("Benchmark", list(runner.list_benchmarks()))
-    limit = st.sidebar.number_input("Task Limit (0 for all)", min_value=0, value=10, step=1)
-    limit_value = None if limit == 0 else limit
+    
+    # Task range selection
+    st.sidebar.markdown("### Task Selection")
+    task_mode = st.sidebar.radio(
+        "Mode",
+        ["Limit", "Range"],
+        help="Limit: Run first N tasks | Range: Run tasks from start to end index"
+    )
+    
+    if task_mode == "Limit":
+        limit = st.sidebar.number_input("Task Limit (0 for all)", min_value=0, value=10, step=1)
+        limit_value = None if limit == 0 else limit
+        start_index = None
+        end_index = None
+    else:
+        # Get benchmark to know total tasks
+        try:
+            benchmark_preview = _load_benchmark_stub(benchmark_key, limit=None)
+            total_available = len(list(benchmark_preview.load_tasks()))
+        except Exception:
+            total_available = 1000  # Fallback if we can't load
+        
+        st.sidebar.caption(f"Total tasks available: ~{total_available}")
+        start_index = st.sidebar.number_input(
+            "Start Index (inclusive, 0-based)",
+            min_value=0,
+            max_value=max(0, total_available - 1),
+            value=0,
+            step=1,
+            help="First task to run (0 = first task)"
+        )
+        end_index = st.sidebar.number_input(
+            "End Index (inclusive, 0-based)",
+            min_value=start_index,
+            max_value=max(start_index, total_available - 1),
+            value=min(start_index + 9, total_available - 1),
+            step=1,
+            help="Last task to run (inclusive)"
+        )
+        limit_value = None
+        st.sidebar.info(f"Will run tasks {start_index} to {end_index} ({end_index - start_index + 1} tasks)")
 
     temperature = st.sidebar.slider("Temperature", min_value=0.0, max_value=2.0, value=0.2, step=0.1)
-    max_tokens = st.sidebar.number_input("Max Tokens", min_value=64, max_value=8192, value=2048, step=64)
+    max_tokens = st.sidebar.number_input("Max Tokens", min_value=64, max_value=320000, value=2048, step=64)
 
     st.sidebar.markdown("---")
     st.sidebar.write("Configure .env with provider API keys before running.")
@@ -267,6 +312,8 @@ def main() -> None:
             model_name=model_name,
             benchmark_key=benchmark_key,
             limit=limit_value,
+            start_index=start_index,
+            end_index=end_index,
             generation=GenerationConfig(temperature=temperature, max_tokens=int(max_tokens)),
         )
         report = run_benchmark_with_progress(runner, config)

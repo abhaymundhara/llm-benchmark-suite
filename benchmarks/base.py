@@ -109,8 +109,17 @@ class Benchmark(abc.ABC):
     name: str = "benchmark"
     description: str = "Generic benchmark"
 
-    def __init__(self, *, limit: Optional[int] = None, evaluation_timeout: float = 30.0) -> None:
+    def __init__(
+        self,
+        *,
+        limit: Optional[int] = None,
+        start_index: Optional[int] = None,
+        end_index: Optional[int] = None,
+        evaluation_timeout: float = 30.0
+    ) -> None:
         self.limit = limit
+        self.start_index = start_index
+        self.end_index = end_index
         self.evaluation_timeout = evaluation_timeout
 
     @abc.abstractmethod
@@ -128,17 +137,22 @@ class Benchmark(abc.ABC):
         """Execute the benchmark for the selected model adapter."""
         started_at = time.time()
         task_results: List[TaskResult] = []
-        if self.limit is not None:
+        
+        # Load tasks based on limit or range
+        all_tasks = list(self.load_tasks())
+        
+        if self.start_index is not None and self.end_index is not None:
+            # Range mode: slice tasks from start_index to end_index (inclusive)
+            tasks = all_tasks[self.start_index:self.end_index + 1]
+        elif self.limit is not None:
+            # Limit mode: take first N tasks
             if self.limit <= 0:
                 tasks = []
             else:
-                tasks = []
-                for task in self.load_tasks():
-                    tasks.append(task)
-                    if len(tasks) >= self.limit:
-                        break
+                tasks = all_tasks[:self.limit]
         else:
-            tasks = list(self.load_tasks())
+            # No limit or range: run all tasks
+            tasks = all_tasks
 
         for task in tasks:
             logger.debug("Evaluating task %s with model %s", task.task_id, adapter.model_name)
@@ -408,6 +422,68 @@ class Benchmark(abc.ABC):
         return metrics
 
     @staticmethod
+    def _contains_actual_code(text: str) -> bool:
+        """
+        Check if text contains actual Python code, not just docstrings or prose.
+        Returns True if text has code-like structures.
+        """
+        if not text or not text.strip():
+            return False
+        
+        lines = text.strip().split('\n')
+        
+        # Count lines that look like code
+        code_indicators = 0
+        total_meaningful_lines = 0
+        
+        for line in lines:
+            stripped = line.strip()
+            
+            # Skip empty lines
+            if not stripped:
+                continue
+            
+            # Skip comments (but count them as meaningful)
+            if stripped.startswith('#'):
+                total_meaningful_lines += 1
+                continue
+            
+            total_meaningful_lines += 1
+            
+            # Check for code indicators
+            # Function/class definitions
+            if re.match(r'^(def|class|async def)\s+\w+', stripped):
+                code_indicators += 2  # Strong indicator
+            # Import statements
+            elif re.match(r'^(import|from)\s+\w+', stripped):
+                code_indicators += 2  # Strong indicator
+            # Decorators
+            elif stripped.startswith('@'):
+                code_indicators += 2
+            # Control flow
+            elif re.match(r'^(if|for|while|with|try|elif|else|except|finally|match|case)\b', stripped):
+                code_indicators += 1
+            # Return/yield/raise/pass/break/continue
+            elif re.match(r'^(return|yield|raise|pass|break|continue|assert)\b', stripped):
+                code_indicators += 1
+            # Variable assignment
+            elif re.match(r'^[a-zA-Z_]\w*\s*[+\-*/&|^%]?=', stripped):
+                code_indicators += 1
+            # Function calls (but be careful with prose)
+            elif re.match(r'^[a-zA-Z_]\w*\s*\(', stripped) and not stripped[0].isupper():
+                code_indicators += 1
+            # Lines ending with colons (def, if, for, etc.)
+            elif stripped.endswith(':'):
+                code_indicators += 1
+        
+        # If more than 30% of lines look like code, consider it code
+        if total_meaningful_lines == 0:
+            return False
+        
+        code_ratio = code_indicators / total_meaningful_lines
+        return code_ratio > 0.3
+
+    @staticmethod
     def _extract_code_for_execution(
         completion: str,
         entry_point: Optional[str],
@@ -460,7 +536,9 @@ class Benchmark(abc.ABC):
                 # Properly dedent and strip the code
                 dedented = textwrap.dedent(match)
                 stripped = dedented.strip()
-                if stripped:
+                
+                # Filter out blocks that are just docstring text (no actual code)
+                if stripped and Benchmark._contains_actual_code(stripped):
                     all_blocks.append(stripped)
         
         # Handle incomplete code blocks (missing closing fence)
@@ -524,7 +602,8 @@ class Benchmark(abc.ABC):
                             lines = lines[:-1]
                             stripped = '\n'.join(lines).strip()
                     
-                    if stripped:
+                    # Only add if it contains actual code
+                    if stripped and Benchmark._contains_actual_code(stripped):
                         all_blocks.append(stripped)
                         break  # Only take the first incomplete block we find
         
@@ -609,8 +688,7 @@ class Benchmark(abc.ABC):
         # Patterns like "Here's the solution:", "Code:", "Implementation:", etc.
         section_markers = [
             r"(?:here(?:'s| is)(?: the)?)?\s*(?:solution|implementation|code|answer)s?\s*:?\s*$",
-            r"^def\s+",  # Direct function definition
-            r"^class\s+",  # Direct class definition
+            # NOTE: Only match def/class at START of line (not indented) to avoid matching nested functions
         ]
         
         lines = completion.splitlines()
@@ -622,7 +700,11 @@ class Benchmark(abc.ABC):
             stripped = line.strip().lower()
             
             # Check if this line is a section marker
-            is_marker = any(re.search(pattern, stripped, re.IGNORECASE) for pattern in section_markers)
+            # Only match def/class if they're at the start of the line (module level, not nested)
+            is_marker = (
+                any(re.search(pattern, stripped, re.IGNORECASE) for pattern in section_markers) or
+                (re.match(r"^def\s+", line) or re.match(r"^class\s+", line))  # Only match non-indented def/class
+            )
             
             # Check if line looks like code
             is_code_line = (
@@ -794,6 +876,9 @@ class Benchmark(abc.ABC):
         Final processing of extracted code before execution.
         Strips tags, merges imports, removes trailing prose, and handles incomplete functions.
         """
+        # First, remove any lines that are clearly not Python code (e.g., from docstrings)
+        code = Benchmark._remove_non_code_lines(code)
+        
         stripped = Benchmark._strip_language_tags(code)
         cleaned = Benchmark._remove_trailing_prose(stripped)
         
@@ -806,6 +891,104 @@ class Benchmark(abc.ABC):
         
         merged = Benchmark._merge_imports_with_prompt(complete, prompt)
         return Benchmark._ensure_typing_imports(merged)
+
+    @staticmethod
+    def _remove_non_code_lines(code: str) -> str:
+        """
+        Remove lines that are clearly not Python code.
+        This catches docstring fragments that leaked into the extraction.
+        """
+        if not code:
+            return code
+        
+        lines = code.split('\n')
+        filtered_lines = []
+        in_docstring = False
+        docstring_quote = None
+        
+        for line in lines:
+            stripped = line.strip()
+            
+            # Track docstring state
+            if '"""' in line or "'''" in line:
+                # Determine which quote type
+                if '"""' in line:
+                    quote = '"""'
+                else:
+                    quote = "'''"
+                
+                count = line.count(quote)
+                
+                if count == 2:
+                    # Docstring starts and ends on same line (e.g., """Single line docstring""")
+                    filtered_lines.append(line)
+                    continue
+                elif count == 1:
+                    if not in_docstring:
+                        # Starting a docstring
+                        in_docstring = True
+                        docstring_quote = quote
+                        filtered_lines.append(line)
+                        continue
+                    elif docstring_quote == quote:
+                        # Ending the docstring
+                        in_docstring = False
+                        docstring_quote = None
+                        filtered_lines.append(line)
+                        continue
+            
+            # If we're inside a docstring, keep all lines
+            if in_docstring:
+                filtered_lines.append(line)
+                continue
+            
+            # Skip empty lines
+            if not stripped:
+                filtered_lines.append(line)
+                continue
+            
+            # Skip comments
+            if stripped.startswith('#'):
+                filtered_lines.append(line)
+                continue
+            
+            # Check if this looks like plain English prose (from a docstring)
+            # Characteristics: starts with lowercase, contains common prose words, no Python syntax
+            
+            # First check: Does it have clear Python syntax?
+            has_python_syntax = (
+                re.match(r'^def\s+\w+\s*\(', stripped) or  # def function_name(
+                re.match(r'^class\s+\w+', stripped) or  # class ClassName
+                re.match(r'^from\s+\w+\s+import\s+', stripped) or  # from module import
+                re.match(r'^import\s+\w+', stripped) or  # import module
+                stripped.startswith(('return ', 'if ', 'for ', 'while ', 'with ', 'try:', 'except', 'finally:', 'elif ', 'else:', '@', 'raise ', 'assert ', 'yield ', 'pass', 'break', 'continue'))
+                or '=' in stripped  # Assignment
+                or (stripped.endswith(':') and len(stripped) < 50)  # Block start (not prose ending with colon)
+                or re.match(r'^\s*[a-zA-Z_]\w*\s*\(', stripped)  # Function call
+            )
+            
+            if has_python_syntax:
+                filtered_lines.append(line)
+                continue
+            
+            # Check for prose indicators ONLY if no Python syntax
+            prose_indicators = [
+                # Starts with prose words but NOT Python keywords
+                re.match(r'^(from|and|or|each|any|of|the|this|that|you|can|will|should|note|example|cell|two|one|round|away|zero)\s+\w+', stripped, re.IGNORECASE),
+                # Multiple prose words in sequence without operators/syntax
+                (stripped.count(' ') >= 3
+                 and not any(op in stripped for op in ['=', '(', '[', '{', '+', '-', '*', '/'])
+                 and len(re.findall(r'\b(the|a|an|to|of|on|with|by|each|any|all|cell|step|move|neighbor|two|one|round|away|zero|integers)\b', stripped, re.IGNORECASE)) >= 2),
+            ]
+            
+            # If it looks like prose and doesn't have code indicators, skip it
+            if any(prose_indicators):
+                continue
+            
+            # Otherwise keep the line
+            filtered_lines.append(line)
+        
+        return '\n'.join(filtered_lines)
 
     @staticmethod
     def _complete_function_if_needed(code: str, prompt: str) -> str:
@@ -973,54 +1156,83 @@ class Benchmark(abc.ABC):
         """
         Remove test/demo code that models often add after the implementation.
         This includes:
-        - print() statements calling the function
+        - print() statements calling the function at module level
         - Example usage at module level
         - Test cases outside of function definitions
+        
+        Keeps all code inside functions/classes, only removes module-level test code.
         """
         if not code:
             return code
         
         lines = code.splitlines()
         
-        # Find where the main implementation ends
-        # We want to keep: imports, function/class definitions
-        # We want to remove: top-level function calls, print statements, etc.
+        # Strategy: Track indentation depth to determine scope
+        # Keep everything with indentation > 0 (inside functions/classes)
+        # Keep imports
+        # Remove module-level function calls and print statements
         
         result_lines = []
-        in_function_or_class = False
-        function_indent_level = 0
+        function_stack = []  # Stack to track nested functions/classes
         
         for i, line in enumerate(lines):
             stripped = line.strip()
             
-            # Track if we're inside a function or class
-            if stripped.startswith('def ') or stripped.startswith('class '):
-                in_function_or_class = True
-                # Calculate indent level
-                function_indent_level = len(line) - len(line.lstrip())
+            # Always keep blank lines
+            if not stripped:
                 result_lines.append(line)
                 continue
             
-            # If we're in a function/class, check if we've exited
-            if in_function_or_class:
-                current_indent = len(line) - len(line.lstrip())
-                # If we're back to the same or less indentation and line has content
-                if stripped and current_indent <= function_indent_level:
-                    in_function_or_class = False
-                else:
-                    # Still inside function/class
-                    result_lines.append(line)
-                    continue
+            current_indent = len(line) - len(line.lstrip())
             
-            # Outside function/class: only keep imports and blank lines
-            if (stripped.startswith('import ') or 
-                stripped.startswith('from ') or 
-                not stripped):  # blank line
+            # Track function/class definitions
+            if stripped.startswith('def ') or stripped.startswith('class ') or stripped.startswith('async def '):
+                # Push onto stack with its indent level
+                function_stack.append(current_indent)
                 result_lines.append(line)
-            else:
-                # This is module-level code (test/demo code) - skip it
-                # Examples: print(...), result = func(...), func(...), etc.
-                pass
+                continue
+            
+            # Pop from stack if we've dedented past a function/class
+            while function_stack and current_indent <= function_stack[-1]:
+                function_stack.pop()
+            
+            # If we're inside any function/class, keep the line
+            if function_stack:
+                result_lines.append(line)
+                continue
+            
+            # At module level (not inside function/class)
+            # Keep imports
+            if stripped.startswith('import ') or stripped.startswith('from '):
+                result_lines.append(line)
+                continue
+            
+            # Keep decorators
+            if stripped.startswith('@'):
+                result_lines.append(line)
+                continue
+            
+            # Skip module-level test code:
+            # - print() statements
+            # - Function calls
+            # - Variable assignments that call functions
+            # But this is tricky - some module level code might be legit
+            # For safety, only remove obvious test patterns
+            is_test_code = (
+                stripped.startswith('print(') or
+                stripped.startswith('print ') or
+                # Function call with common test function names
+                re.match(r'^(test_|check_|assert_|demo_|example_)\w+\(', stripped) or
+                # Direct function call that looks like a test
+                (re.match(r'^\w+\(', stripped) and '=' not in stripped)
+            )
+            
+            if is_test_code:
+                # Skip this module-level test code
+                continue
+            
+            # Otherwise keep it (safer to keep than remove)
+            result_lines.append(line)
         
         return '\n'.join(result_lines).strip()
 

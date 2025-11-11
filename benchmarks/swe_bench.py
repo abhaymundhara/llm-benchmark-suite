@@ -22,11 +22,18 @@ class SWEBenchDemo(Benchmark):
         *,
         split: str = "test",
         limit: Optional[int] = 5,
+        start_index: Optional[int] = None,
+        end_index: Optional[int] = None,
         evaluation_timeout: float = 60.0,
         cache_dir: Optional[str] = None,
         similarity_threshold: float = 0.8,
     ) -> None:
-        super().__init__(limit=limit, evaluation_timeout=evaluation_timeout)
+        super().__init__(
+            limit=limit,
+            start_index=start_index,
+            end_index=end_index,
+            evaluation_timeout=evaluation_timeout
+        )
         self.split = split
         self.cache_dir = cache_dir
         self.similarity_threshold = similarity_threshold

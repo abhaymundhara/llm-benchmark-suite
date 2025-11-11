@@ -52,6 +52,8 @@ class RunConfig:
     model_name: str
     benchmark_key: str
     limit: Optional[int] = None
+    start_index: Optional[int] = None  # NEW: Start task index (inclusive)
+    end_index: Optional[int] = None    # NEW: End task index (inclusive)
     generation: GenerationConfig = field(default_factory=GenerationConfig)
 
 
@@ -80,7 +82,12 @@ class BenchmarkRunner:
             config.model_name,
         )
         adapter = self._create_adapter(config.model_provider, config.model_name)
-        benchmark = self._create_benchmark(config.benchmark_key, limit=config.limit)
+        benchmark = self._create_benchmark(
+            config.benchmark_key,
+            limit=config.limit,
+            start_index=config.start_index,
+            end_index=config.end_index
+        )
 
         report = benchmark.run(
             adapter,
@@ -262,9 +269,20 @@ class BenchmarkRunner:
             raise
 
     @staticmethod
-    def _create_benchmark(benchmark_key: str, *, limit: Optional[int]) -> Benchmark:
+    def _create_benchmark(
+        benchmark_key: str,
+        *,
+        limit: Optional[int],
+        start_index: Optional[int] = None,
+        end_index: Optional[int] = None
+    ) -> Benchmark:
         try:
-            return benchmark_registry.create(benchmark_key, limit=limit)
+            return benchmark_registry.create(
+                benchmark_key,
+                limit=limit,
+                start_index=start_index,
+                end_index=end_index
+            )
         except Exception as exc:  # pylint: disable=broad-except
             logger.exception("Failed to initialize benchmark '%s'.", benchmark_key)
             raise

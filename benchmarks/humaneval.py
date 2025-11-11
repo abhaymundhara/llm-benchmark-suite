@@ -16,8 +16,21 @@ class HumanEvalBenchmark(Benchmark):
     name = "human_eval"
     description = "Evaluation using the OpenAI HumanEval coding problems."
 
-    def __init__(self, *, limit: Optional[int] = None, evaluation_timeout: float = 30.0, cache_dir: Optional[str] = None) -> None:
-        super().__init__(limit=limit, evaluation_timeout=evaluation_timeout)
+    def __init__(
+        self,
+        *,
+        limit: Optional[int] = None,
+        start_index: Optional[int] = None,
+        end_index: Optional[int] = None,
+        evaluation_timeout: float = 30.0,
+        cache_dir: Optional[str] = None
+    ) -> None:
+        super().__init__(
+            limit=limit,
+            start_index=start_index,
+            end_index=end_index,
+            evaluation_timeout=evaluation_timeout
+        )
         self.cache_dir = cache_dir
         self._dataset: Optional[Dataset] = None
 
