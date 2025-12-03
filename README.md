@@ -123,23 +123,6 @@ curl -fsSL https://ollama.ai/install.sh | sh
 ollama pull qwen2.5-coder:7b
 ```
 
-## 📖 Documentation
-
-See the `Documentation/` folder for detailed guides:
-
-- [Installation Guide](Documentation/INSTALLATION.md)
-- [Quick Start Guide](Documentation/QUICKSTART.md)
-- [Dataset Information](Documentation/DATASETS.md)
-- [BigCodeBench Guide](Documentation/BIGCODEBENCH.md)
-- [SWE-bench Setup](Documentation/SWE_BENCH_SETUP.md)
-
-## 🧪 Tests & development
-
-Test files and debug scripts are excluded from the default repository layout to keep the project lightweight. To run small checks locally you can create a short ad-hoc command, for example:
-
-```bash
-python3 -c "from benchmarks import registry; b = registry.create('bigcodebench', limit=3); print([t.task_id for t in b.load_tasks()])"
-```
 
 ## 📝 Output
 
@@ -148,19 +131,6 @@ Results are saved to `reports/` directory:
 - `benchmark_<name>_<timestamp>.json` - Full results
 - `benchmark_<name>_<timestamp>_summary.txt` - Human-readable summary
 
-## 🤝 Contributing
-
-Contributions welcome. Short checklist:
-
-1. Add a benchmark file in `benchmarks/` extending `Benchmark`.
-2. Add/register it in `benchmarks/__init__.py`.
-3. Add docs in `Documentation/` describing dataset and prompt style.
-
-Consider opening a pull request with a small example run and expected metrics.
-
-## 📄 License
-
-See LICENSE file for details.
 
 ## 🙏 Acknowledgments
 
