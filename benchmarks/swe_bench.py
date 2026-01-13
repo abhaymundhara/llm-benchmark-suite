@@ -27,6 +27,7 @@ class SWEBenchDemo(Benchmark):
         evaluation_timeout: float = 60.0,
         cache_dir: Optional[str] = None,
         similarity_threshold: float = 0.8,
+        model_name: str = ""  # Accept but ignore for compatibility
     ) -> None:
         super().__init__(
             limit=limit,

@@ -26,6 +26,7 @@ class MBPPBenchmark(Benchmark):
         end_index: Optional[int] = None,
         evaluation_timeout: float = 30.0,
         cache_dir: Optional[str] = None,
+        model_name: str = ""  # Accept but ignore for compatibility
     ) -> None:
         super().__init__(
             limit=limit,

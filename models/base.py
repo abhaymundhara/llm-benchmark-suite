@@ -37,6 +37,10 @@ class GenerationMetrics:
     input_tokens: Optional[int] = None
     output_tokens: Optional[int] = None
     cost_usd: Optional[float] = None
+    finish_reason: Optional[str] = None
+    max_tokens: Optional[int] = None
+    num_ctx: Optional[int] = None
+    prompt_tokens_estimate: Optional[int] = None
     raw_response: Optional[Dict[str, Any]] = None
 
 

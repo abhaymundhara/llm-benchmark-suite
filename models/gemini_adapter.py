@@ -81,6 +81,10 @@ class GeminiAdapter(BaseModelAdapter):
                 ),
             )
             output_text = response.text or ""
+            finish_reason = None
+            candidates = getattr(response, "candidates", None)
+            if candidates:
+                finish_reason = getattr(candidates[0], "finish_reason", None)
             usage = response.usage_metadata
             raw = {
                 "usage_metadata": {
@@ -105,5 +109,7 @@ class GeminiAdapter(BaseModelAdapter):
             raw_response=raw,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
+            finish_reason=finish_reason,
+            max_tokens=max_tokens,
         )
         return GenerationResult(output_text=output_text.strip(), metrics=metrics)

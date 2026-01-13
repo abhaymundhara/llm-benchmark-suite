@@ -2,14 +2,24 @@ from __future__ import annotations
 
 import logging
 import os
+from pathlib import Path
 from typing import Dict, List, Optional
 
 import pandas as pd
+import plotly.express as px
 import streamlit as st
 
 from benchmarks import registry as benchmark_registry
 from benchmarks.base import Benchmark, BenchmarkReport, TaskResult
 from runner import BenchmarkRunner, GenerationConfig, RunConfig, configure_logging
+from utils.comparison import (
+    ComparisonResult,
+    RunSummary,
+    compare_runs,
+    filter_by_benchmark,
+    get_available_benchmarks,
+    load_reports_from_directory,
+)
 
 
 def _initialize_logging() -> Optional[str]:
@@ -176,14 +186,13 @@ def _render_report(report: BenchmarkReport) -> None:
 
 
 def run_benchmark_with_progress(runner: BenchmarkRunner, config: RunConfig) -> BenchmarkReport:
-    # Calculate total tasks based on config
-    all_tasks_preview = list(_load_benchmark_stub(config.benchmark_key, limit=None).load_tasks())
-    
+    # Calculate total tasks based on config without preloading all tasks.
     if config.start_index is not None and config.end_index is not None:
         total_tasks = config.end_index - config.start_index + 1
     elif config.limit is not None:
-        total_tasks = min(config.limit, len(all_tasks_preview))
+        total_tasks = max(0, config.limit)
     else:
+        all_tasks_preview = list(_load_benchmark_stub(config.benchmark_key, limit=None).load_tasks())
         total_tasks = len(all_tasks_preview)
     
     st.write(f"Benchmark will run on **{total_tasks}** tasks.")
@@ -227,6 +236,157 @@ def run_benchmark_with_progress(runner: BenchmarkRunner, config: RunConfig) -> B
     return report
 
 
+@st.cache_data(ttl=300)
+def _load_all_reports(reports_dir_str: str) -> List[RunSummary]:
+    """Load all reports with caching to avoid re-parsing on every interaction."""
+    return load_reports_from_directory(Path(reports_dir_str))
+
+
+def _render_comparison(comparison: ComparisonResult) -> None:
+    """Render comparison visualization for multiple benchmark runs."""
+    
+    # Display overlap info
+    num_overlapping = len(comparison.overlapping_task_ids)
+    if num_overlapping == 0:
+        st.error("❌ No overlapping tasks found between the selected runs. Cannot compare.")
+        return
+    
+    # Info banner
+    min_tasks = min(m['total_tasks_run'] for m in comparison.comparison_metrics)
+    max_tasks = max(m['total_tasks_run'] for m in comparison.comparison_metrics)
+    
+    if min_tasks != max_tasks:
+        st.info(f"ℹ️ Comparing **{num_overlapping}** common tasks (runs had {min_tasks}-{max_tasks} total tasks)")
+    else:
+        st.success(f"✅ Comparing all **{num_overlapping}** tasks")
+    
+    # Metrics table
+    st.subheader("Comparison Metrics")
+    
+    df = pd.DataFrame(comparison.comparison_metrics)
+    
+    # Format the dataframe for display
+    display_df = df[[
+        'model_name', 'timestamp', 'total_tasks_run', 'tasks_compared', 
+        'passed', 'failed', 'pass_rate', 'average_latency_ms'
+    ]].copy()
+    
+    display_df['pass_rate'] = display_df['pass_rate'].apply(lambda x: f"{x:.1%}")
+    display_df['average_latency_ms'] = display_df['average_latency_ms'].apply(
+        lambda x: f"{x:.0f}" if pd.notna(x) else "N/A"
+    )
+    
+    display_df.columns = [
+        'Model', 'Timestamp', 'Total Tasks Run', 'Tasks Compared',
+        'Passed', 'Failed', 'Pass Rate', 'Avg Latency (ms)'
+    ]
+    
+    st.dataframe(display_df, use_container_width=True)
+    
+    # Pass rate bar chart
+    st.subheader("Pass Rate Comparison")
+    chart_data = pd.DataFrame({
+        'Model': [m['model_name'] for m in comparison.comparison_metrics],
+        'Pass Rate': [m['pass_rate'] for m in comparison.comparison_metrics]
+    })
+    
+    fig_pass = px.bar(
+        chart_data, 
+        x='Model', 
+        y='Pass Rate', 
+        color='Model',
+        text_auto='.1%',
+        title='Pass Rate by Model'
+    )
+    fig_pass.update_layout(showlegend=False, yaxis_tickformat=".0%")
+    st.plotly_chart(fig_pass, use_container_width=True)
+    
+    # Latency Comparison
+    st.subheader("Latency Comparison")
+    latency_data = pd.DataFrame({
+        'Model': [m['model_name'] for m in comparison.comparison_metrics],
+        'Avg Latency': [m['average_latency_ms'] for m in comparison.comparison_metrics]
+    })
+    
+    fig_latency = px.bar(
+        latency_data,
+        x='Model',
+        y='Avg Latency',
+        color='Model',
+        text_auto='.0f',
+        title='Average Latency (ms)',
+        labels={'Avg Latency': 'Latency (ms)'}
+    )
+    fig_latency.update_layout(showlegend=False)
+    st.plotly_chart(fig_latency, use_container_width=True)
+
+    # Token metrics if available
+    if any(m.get('total_output_tokens') for m in comparison.comparison_metrics):
+        st.subheader("Token Usage Comparison")
+        
+        token_df = pd.DataFrame(comparison.comparison_metrics)[[
+            'model_name', 'total_input_tokens', 'total_output_tokens', 
+            'avg_input_tokens', 'avg_output_tokens', 'tokens_per_success'
+        ]].copy()
+        
+        token_df.columns = [
+            'Model', 'Total Input', 'Total Output', 
+            'Avg Input', 'Avg Output', 'Tokens/Success'
+        ]
+        
+        # Format with commas
+        for col in ['Total Input', 'Total Output']:
+            token_df[col] = token_df[col].apply(lambda x: f"{x:,.0f}" if pd.notna(x) else "N/A")
+        
+        for col in ['Avg Input', 'Avg Output', 'Tokens/Success']:
+            token_df[col] = token_df[col].apply(lambda x: f"{x:.1f}" if pd.notna(x) else "N/A")
+        
+        st.dataframe(token_df, use_container_width=True)
+        
+        # Token efficiency chart
+        efficiency_data = pd.DataFrame({
+            'Model': [m['model_name'] for m in comparison.comparison_metrics],
+            'Tokens per Success': [
+                m.get('tokens_per_success', 0) if m.get('tokens_per_success') else 0 
+                for m in comparison.comparison_metrics
+            ]
+        })
+        if efficiency_data['Tokens per Success'].sum() > 0:
+            fig_eff = px.bar(
+                efficiency_data,
+                x='Model',
+                y='Tokens per Success',
+                color='Model',
+                text_auto='.0f',
+                title='Tokens per Success'
+            )
+            fig_eff.update_layout(showlegend=False)
+            st.plotly_chart(fig_eff, use_container_width=True)
+    
+    # Per-task breakdown
+    st.subheader("Per-Task Results")
+    
+    task_comparison_data = []
+    for task_id in sorted(comparison.per_task_results.keys()):
+        row = {'Task ID': task_id}
+        for run in comparison.runs:
+            result = comparison.per_task_results[task_id].get(run.model_name)
+            row[run.model_name] = "✅" if result else ("❌" if result is False else "—")
+        task_comparison_data.append(row)
+    
+    task_df = pd.DataFrame(task_comparison_data)
+    st.dataframe(task_df, use_container_width=True, height=400)
+    
+    # Download comparison CSV
+    csv = task_df.to_csv(index=False)
+    st.download_button(
+        label="Download Task Comparison CSV",
+        data=csv,
+        file_name="benchmark_comparison.csv",
+        mime="text/csv"
+    )
+
+
 def main() -> None:
     st.set_page_config(page_title="LLM Benchmark Dashboard", layout="wide")
     log_path = _initialize_logging()
@@ -243,12 +403,16 @@ def main() -> None:
         )
         available_models = {provider: [] for provider in runner.list_model_providers()}
 
-    model_provider = st.sidebar.selectbox("Model Provider", list(available_models.keys()))
+    model_provider = st.sidebar.selectbox(
+        "Model Provider",
+        list(available_models.keys()),
+        key="model_provider",
+    )
     model_choices = available_models.get(model_provider, [])
     if model_choices:
-        model_name = st.sidebar.selectbox("Model", model_choices)
+        model_name = st.sidebar.selectbox("Model", model_choices, key="model_name")
     else:
-        model_name = st.sidebar.text_input("Model", "")
+        model_name = st.sidebar.text_input("Model", "", key="model_name")
 
     benchmark_key = st.sidebar.selectbox("Benchmark", list(runner.list_benchmarks()))
     
@@ -294,14 +458,116 @@ def main() -> None:
         st.sidebar.info(f"Will run tasks {start_index} to {end_index} ({end_index - start_index + 1} tasks)")
 
     temperature = st.sidebar.slider("Temperature", min_value=0.0, max_value=2.0, value=0.2, step=0.1)
-    max_tokens = st.sidebar.number_input("Max Tokens", min_value=64, max_value=320000, value=2048, step=64)
+    
+    # Get model-specific max_tokens for Ollama models
+    suggested_max_tokens = 2048  # Default
+    if model_provider == "ollama" and model_name:
+        from models.ollama_adapter import OllamaAdapter
+        try:
+            adapter = OllamaAdapter(model_name)
+            suggested_max_tokens = adapter._get_model_max_tokens()
+        except Exception:
+            suggested_max_tokens = 2048
 
+    selected_model_key = (model_provider, model_name)
+    if st.session_state.get("last_model_key") != selected_model_key:
+        st.session_state["last_model_key"] = selected_model_key
+        st.session_state["max_tokens"] = suggested_max_tokens
+    
+    max_tokens = st.sidebar.number_input(
+        "Max Tokens", 
+        min_value=64, 
+        max_value=2000000,  # Support models with up to 2M context (e.g., Gemini, Nemotron)
+        value=st.session_state.get("max_tokens", suggested_max_tokens),
+        step=64,
+        key="max_tokens",
+        help=f"Model-specific recommended: {suggested_max_tokens}" if model_provider == "ollama" else None
+    )
+    
+    # Show info if using recommended value for Ollama
+    if model_provider == "ollama" and max_tokens == suggested_max_tokens and suggested_max_tokens > 2048:
+        st.sidebar.success(f"✓ Using optimized {suggested_max_tokens} tokens for {model_name}")
+
+    st.sidebar.markdown("---")
+    
+    # Comparison Section
+    st.sidebar.subheader("📊 Compare Results")
+    
+    if st.sidebar.button("Compare Benchmark Runs", use_container_width=True):
+        st.session_state["show_comparison"] = not st.session_state.get("show_comparison", False)
+    
     st.sidebar.markdown("---")
     st.sidebar.write("Configure .env with provider API keys before running.")
     if log_path:
         st.sidebar.caption(f"Detailed logs writing to `{log_path}`.")
 
     report: Optional[BenchmarkReport] = st.session_state.get("last_report")
+    
+    # Comparison Interface
+    if st.session_state.get("show_comparison", False):
+        st.header("📊 Benchmark Comparison")
+        
+        try:
+            # Load all available reports
+            reports_dir = Path("reports")
+            if not reports_dir.exists():
+                st.warning("No reports directory found. Run some benchmarks first!")
+            else:
+                all_summaries = _load_all_reports(str(reports_dir))
+                
+                if not all_summaries:
+                    st.warning("No benchmark reports found. Run some benchmarks first!")
+                else:
+                    # Get available benchmarks
+                    available_benchmarks = get_available_benchmarks(all_summaries)
+                    
+                    if not available_benchmarks:
+                        st.warning("No valid benchmarks found in reports.")
+                    else:
+                        # Benchmark selector
+                        selected_benchmark = st.selectbox(
+                            "Select Benchmark to Compare",
+                            available_benchmarks,
+                            help="Only runs from the same benchmark can be compared"
+                        )
+                        
+                        # Filter by selected benchmark
+                        filtered_summaries = filter_by_benchmark(all_summaries, selected_benchmark)
+                        
+                        # Limit to most recent 30 runs for better UI performance
+                        display_summaries = filtered_summaries[:30]
+                        
+                        if len(filtered_summaries) > 30:
+                            st.info(f"Showing 30 most recent runs (total: {len(filtered_summaries)})")
+                        
+                        # Multiselect for runs
+                        run_options = {summary.display_name(): summary for summary in display_summaries}
+                        
+                        selected_run_names = st.multiselect(
+                            "Select Runs to Compare (2-5 recommended)",
+                            list(run_options.keys()),
+                            help="Select 2 or more runs to compare. Comparison uses only overlapping tasks."
+                        )
+                        
+                        if len(selected_run_names) < 2:
+                            st.info("Select at least 2 runs to enable comparison.")
+                        elif len(selected_run_names) > 5:
+                            st.warning("Comparing more than 5 runs may be hard to visualize. Consider selecting fewer runs.")
+                        
+                        if len(selected_run_names) >= 2:
+                            if st.button("Generate Comparison", type="primary"):
+                                selected_runs = [run_options[name] for name in selected_run_names]
+                                
+                                with st.spinner("Analyzing overlapping tasks..."):
+                                    comparison = compare_runs(selected_runs)
+                                    _render_comparison(comparison)
+        
+        except Exception as exc:
+            st.error(f"Error loading comparison: {exc}")
+            import traceback
+            st.code(traceback.format_exc())
+        
+        st.markdown("---")
 
     if st.button("Run Benchmark", type="primary"):
         if not model_name:

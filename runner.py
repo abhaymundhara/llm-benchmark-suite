@@ -81,12 +81,19 @@ class BenchmarkRunner:
             config.model_provider,
             config.model_name,
         )
-        adapter = self._create_adapter(config.model_provider, config.model_name)
+        adapter_kwargs: Dict[str, object] = {}
+        if config.benchmark_key.startswith("swe_bench") and config.model_provider == "ollama":
+            adapter_timeout = float(os.getenv("SWE_BENCH_MODEL_TIMEOUT", "3600"))
+            adapter_kwargs["timeout"] = adapter_timeout
+            logger.info("Setting Ollama timeout to %.0f seconds for SWE-bench runs.", adapter_timeout)
+
+        adapter = self._create_adapter(config.model_provider, config.model_name, **adapter_kwargs)
         benchmark = self._create_benchmark(
             config.benchmark_key,
             limit=config.limit,
             start_index=config.start_index,
-            end_index=config.end_index
+            end_index=config.end_index,
+            model_name=config.model_name  # Pass model name for prompt customization
         )
 
         report = benchmark.run(
@@ -261,9 +268,9 @@ class BenchmarkRunner:
         return sanitized or "unknown"
 
     @staticmethod
-    def _create_adapter(provider_key: str, model_name: str) -> BaseModelAdapter:
+    def _create_adapter(provider_key: str, model_name: str, **kwargs: object) -> BaseModelAdapter:
         try:
-            return model_registry.create(provider_key, model_name=model_name)
+            return model_registry.create(provider_key, model_name=model_name, **kwargs)
         except Exception as exc:  # pylint: disable=broad-except
             logger.exception("Failed to initialize model adapter '%s/%s'.", provider_key, model_name)
             raise
@@ -274,14 +281,16 @@ class BenchmarkRunner:
         *,
         limit: Optional[int],
         start_index: Optional[int] = None,
-        end_index: Optional[int] = None
+        end_index: Optional[int] = None,
+        model_name: str = ""
     ) -> Benchmark:
         try:
             return benchmark_registry.create(
                 benchmark_key,
                 limit=limit,
                 start_index=start_index,
-                end_index=end_index
+                end_index=end_index,
+                model_name=model_name
             )
         except Exception as exc:  # pylint: disable=broad-except
             logger.exception("Failed to initialize benchmark '%s'.", benchmark_key)

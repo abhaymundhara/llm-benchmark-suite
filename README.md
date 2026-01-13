@@ -13,6 +13,7 @@ Quick links
 
 - **Multiple Benchmarks**: HumanEval, MBPP, SWE-bench, BigCodeBench
 - **Streamlit UI**: Interactive web interface for running benchmarks and viewing results
+- **Benchmark Comparison**: Compare multiple runs side-by-side with smart task overlap detection
 - **Model Support**: OpenAI, Anthropic Claude, Google Gemini, Ollama (local models)
 - **Detailed Metrics**: Pass rates, latency, token usage, and cost tracking
 - **Comprehensive Reports**: JSON and text summaries with task-level details
@@ -92,6 +93,18 @@ Notes
 - DeepSeek Coder
 - Code Llama
 - And any other Ollama model
+
+**Automatic Token Limit Configuration**: When using Ollama models with the default `max_tokens=512`, the adapter automatically adjusts the limit based on the model's architecture:
+
+- Qwen2.5-Coder: 4096 tokens
+- DeepSeek-Coder: 4096 tokens
+- DeepSeek-R1: 8192 tokens
+- CodeLlama: 4096 tokens
+- Llama 3.x: 8192 tokens
+- Mistral: 8192 tokens
+- Mixtral: 32768 tokens
+
+This ensures optimal output quality without manual configuration.
 
 ## 📊 Metrics Tracked
 

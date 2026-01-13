@@ -20,6 +20,7 @@ class SWEBenchFull(SWEbenchHarnessBenchmark):
         evaluation_timeout: float = 1800.0,
         cache_dir: Optional[str] = None,
         harness_command: Optional[str] = None,
+        model_name: str = ""  # Accept but ignore for compatibility
     ) -> None:
         super().__init__(
             limit=limit,

@@ -40,6 +40,7 @@ class BigCodeBenchmark(Benchmark):
         cache_dir: Optional[str] = None,
         split: str = "instruct",  # 'complete' or 'instruct'
         subset: str = "full",  # 'full' or 'hard'
+        model_name: str = ""  # Accept but ignore for compatibility
     ) -> None:
         """
         Initialize BigCodeBench.

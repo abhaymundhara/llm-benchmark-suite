@@ -115,7 +115,7 @@ class Benchmark(abc.ABC):
         limit: Optional[int] = None,
         start_index: Optional[int] = None,
         end_index: Optional[int] = None,
-        evaluation_timeout: float = 30.0
+        evaluation_timeout: Optional[float] = 30.0
     ) -> None:
         self.limit = limit
         self.start_index = start_index
@@ -125,6 +125,15 @@ class Benchmark(abc.ABC):
     @abc.abstractmethod
     def load_tasks(self) -> Iterable[BenchmarkTask]:
         """Load tasks associated with this benchmark."""
+
+    def build_retry_prompt(
+        self,
+        task: BenchmarkTask,
+        completion: str,
+        failure_category: Optional[str],
+    ) -> Optional[str]:
+        """Return a follow-up prompt when a completion cannot be parsed."""
+        return None
 
     def run(
         self,
@@ -137,6 +146,21 @@ class Benchmark(abc.ABC):
         """Execute the benchmark for the selected model adapter."""
         started_at = time.time()
         task_results: List[TaskResult] = []
+
+        def _log_generation(task_id: str, prompt: str, metrics: GenerationMetrics) -> None:
+            prompt_tokens = (
+                metrics.input_tokens
+                or metrics.prompt_tokens_estimate
+                or max(1, (len(prompt) + 3) // 4)
+            )
+            logger.info(
+                "Generation stats task=%s prompt_tokens=%s max_tokens=%s num_ctx=%s finish_reason=%s",
+                task_id,
+                prompt_tokens,
+                metrics.max_tokens,
+                metrics.num_ctx,
+                metrics.finish_reason,
+            )
         
         # Load tasks based on limit or range
         all_tasks = list(self.load_tasks())
@@ -162,6 +186,7 @@ class Benchmark(abc.ABC):
                     temperature=temperature,
                     max_tokens=max_tokens,
                 )
+                _log_generation(task.task_id, task.prompt, generation_result.metrics)
                 completion_text = generation_result.output_text
             except Exception as exc:  # pylint: disable=broad-except
                 logger.exception("Generation failed for task %s: %s", task.task_id, exc)
@@ -188,6 +213,68 @@ class Benchmark(abc.ABC):
                     tests_code,
                     failure_category,
                 ) = self.evaluate_completion(task, completion_text)
+                retry_used = False
+                retry_error: Optional[str] = None
+                retry_prompt = None
+
+                if not passed:
+                    retry_prompt = self.build_retry_prompt(task, completion_text, failure_category)
+
+                if retry_prompt:
+                    logger.info(
+                        "Retrying task %s after %s",
+                        task.task_id,
+                        failure_category or "evaluation failure",
+                    )
+                    try:
+                        generation_result = adapter.generate(
+                            prompt=retry_prompt,
+                            temperature=temperature,
+                            max_tokens=max_tokens,
+                        )
+                        _log_generation(task.task_id, retry_prompt, generation_result.metrics)
+                        completion_text = generation_result.output_text
+                        (
+                            passed,
+                            stdout,
+                            stderr,
+                            evaluation_error,
+                            executed_code,
+                            tests_code,
+                            failure_category,
+                        ) = self.evaluate_completion(task, completion_text)
+                        retry_used = True
+                    except Exception as exc:  # pylint: disable=broad-except
+                        retry_error = str(exc)
+                        logger.exception(
+                            "Retry generation failed for task %s: %s",
+                            task.task_id,
+                            exc,
+                        )
+
+                task_metadata = dict(task.metadata)
+                if retry_used:
+                    task_metadata["retry_used"] = True
+                if retry_error:
+                    task_metadata["retry_error"] = retry_error
+                finish_reason = generation_result.metrics.finish_reason
+                if isinstance(finish_reason, str):
+                    finish_reason = finish_reason.lower()
+                if finish_reason is not None:
+                    task_metadata["finish_reason"] = finish_reason
+                if generation_result.metrics.max_tokens is not None:
+                    task_metadata["max_tokens"] = generation_result.metrics.max_tokens
+                if generation_result.metrics.num_ctx is not None:
+                    task_metadata["num_ctx"] = generation_result.metrics.num_ctx
+                if generation_result.metrics.input_tokens is not None:
+                    task_metadata["prompt_tokens"] = generation_result.metrics.input_tokens
+                if generation_result.metrics.prompt_tokens_estimate is not None:
+                    task_metadata["prompt_tokens_estimate"] = generation_result.metrics.prompt_tokens_estimate
+
+                length_reasons = {"length", "max_tokens", "token_limit", "max_output_tokens"}
+                if finish_reason and finish_reason in length_reasons:
+                    task_metadata["truncated_output"] = True
+
                 task_result = TaskResult(
                     task_id=task.task_id,
                     prompt=task.prompt,
@@ -197,7 +284,7 @@ class Benchmark(abc.ABC):
                     evaluation_stdout=stdout,
                     evaluation_stderr=stderr,
                     generation_metrics=generation_result.metrics,
-                    metadata=task.metadata,
+                    metadata=task_metadata,
                     evaluated_code=executed_code,
                     tests_code=tests_code,
                     failure_category=failure_category if not passed else None,

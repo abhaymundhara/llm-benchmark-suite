@@ -86,6 +86,7 @@ class ClaudeAdapter(BaseModelAdapter):
                 block.text for block in response.content if block.type == "text"  # type: ignore[attr-defined]
             ]
             output_text = "\n".join(text_parts)
+            finish_reason = getattr(response, "stop_reason", None)
             raw = response.model_dump()
             usage = raw.get("usage", {})
             prompt_tokens = usage.get("input_tokens")
@@ -103,5 +104,7 @@ class ClaudeAdapter(BaseModelAdapter):
             raw_response=raw,
             input_tokens=prompt_tokens,
             output_tokens=completion_tokens,
+            finish_reason=finish_reason,
+            max_tokens=max_tokens,
         )
         return GenerationResult(output_text=output_text.strip(), metrics=metrics)

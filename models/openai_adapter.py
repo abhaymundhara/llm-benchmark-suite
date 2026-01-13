@@ -23,10 +23,19 @@ class OpenAIAdapter(BaseModelAdapter):
     """Adapter for OpenAI GPT models."""
 
     MODEL_SPECS: Dict[str, Dict[str, Any]] = {
-        # GPT-5 series (latest frontier models)
+        # GPT-5.2 series (latest flagship models - December 2024)
+        "gpt-5.2": {
+            "context_window": 128_000,
+            "description": "GPT-5.2: The best model for coding and agentic tasks across industries.",
+        },
+        "gpt-5.2-pro": {
+            "context_window": 128_000,
+            "description": "GPT-5.2 pro: Version of GPT-5.2 that produces smarter and more precise responses.",
+        },
+        # GPT-5 series
         "gpt-5": {
             "context_window": 128_000,
-            "description": "GPT-5: The best model for coding and agentic tasks across domains.",
+            "description": "GPT-5: Previous intelligent reasoning model for coding and agentic tasks.",
         },
         "gpt-5-mini": {
             "context_window": 128_000,
@@ -58,17 +67,17 @@ class OpenAIAdapter(BaseModelAdapter):
             "context_window": 200_000,
             "description": "o3: Reasoning model for complex tasks, succeeded by GPT-5.",
         },
-        "o4-mini": {
-            "context_window": 128_000,
-            "description": "o4-mini: Fast, cost-efficient reasoning model, succeeded by GPT-5 mini.",
+        "o3-pro": {
+            "context_window": 200_000,
+            "description": "o3-pro: Version of o3 with more compute for better responses.",
         },
         "o3-mini": {
             "context_window": 128_000,
             "description": "o3-mini: A small model alternative to o3.",
         },
-        "o3-pro": {
-            "context_window": 200_000,
-            "description": "o3-pro: Version of o3 with more compute for better responses.",
+        "o4-mini": {
+            "context_window": 128_000,
+            "description": "o4-mini: Fast, cost-efficient reasoning model, succeeded by GPT-5 mini.",
         },
         # GPT-4o series
         "gpt-4o": {
@@ -79,7 +88,7 @@ class OpenAIAdapter(BaseModelAdapter):
             "context_window": 128_000,
             "description": "GPT-4o mini: Fast, affordable small model for focused tasks.",
         },
-        # Legacy models
+        # Legacy GPT-4 models
         "gpt-4-turbo": {
             "context_window": 128_000,
             "description": "GPT-4 Turbo: An older high-intelligence GPT model.",
@@ -134,21 +143,36 @@ class OpenAIAdapter(BaseModelAdapter):
         start_time = time.perf_counter()
         raw: Dict[str, Any] = {}
         try:
-            # Use Chat Completions API (standard, well-supported)
-            response = self._client.chat.completions.create(
-                model=self.model_name,
-                messages=[
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=temperature,
-                max_tokens=max_tokens,
+            # Determine which parameter to use based on model
+            # Reasoning models (o-series, GPT-5.x) use max_completion_tokens
+            # Other models use max_tokens
+            uses_completion_tokens = (
+                self.model_name.startswith("o") or  # o1, o3, o4-mini, etc.
+                self.model_name.startswith("gpt-5")  # GPT-5.x series
             )
+            
+            # Build request parameters
+            request_params = {
+                "model": self.model_name,
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": temperature,
+            }
+            
+            # Add appropriate token limit parameter
+            if uses_completion_tokens:
+                request_params["max_completion_tokens"] = max_tokens
+            else:
+                request_params["max_tokens"] = max_tokens
+            
+            # Use Chat Completions API (standard, well-supported)
+            response = self._client.chat.completions.create(**request_params)
             
             # Extract the response text
             if not response.choices:
                 raise ModelGenerationError("OpenAI returned no choices.")
             
             output_text = response.choices[0].message.content or ""
+            finish_reason = response.choices[0].finish_reason
             
             raw = response.model_dump()
             prompt_tokens = raw.get("usage", {}).get("prompt_tokens", 0)
@@ -167,5 +191,7 @@ class OpenAIAdapter(BaseModelAdapter):
             raw_response=raw,
             input_tokens=prompt_tokens,
             output_tokens=completion_tokens,
+            finish_reason=finish_reason,
+            max_tokens=max_tokens,
         )
         return GenerationResult(output_text=output_text.strip(), metrics=metrics)
