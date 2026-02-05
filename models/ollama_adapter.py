@@ -250,14 +250,14 @@ class OllamaAdapter(BaseModelAdapter):
     def generate(self, prompt: str, temperature: float, max_tokens: int) -> GenerationResult:
         self.validate_generation_params(prompt, temperature, max_tokens)
 
-        # Always use the model's maximum generation range for Ollama.
+        # Respect the model's hard limit but honor the requested size if it is smaller.
         model_max = self._get_model_max_tokens()
-        if max_tokens != model_max:
+        if max_tokens > model_max:
             logger.info(
-                "Setting max_tokens to model max: %d → %d for %s",
-                max_tokens, model_max, self.model_name
+                "Requesting %d tokens exceeds %s's max (%d); capping to model limit",
+                max_tokens, self.model_name, model_max
             )
-            print(f"Setting max_tokens to model max: {max_tokens} → {model_max} for {self.model_name}")
+            print(f"Capping max_tokens to model max: {max_tokens} → {model_max} for {self.model_name}")
             max_tokens = model_max
 
         # Set context window size - scale with prompt + requested generation.
