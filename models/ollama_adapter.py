@@ -23,6 +23,8 @@ class OllamaAdapter(BaseModelAdapter):
     """Adapter for interacting with local Ollama models."""
 
     DEFAULT_HOST = "http://localhost:11434"
+    DEFAULT_SUGGESTED_GENERATION_TOKENS = 2048
+    MAX_SUGGESTED_GENERATION_TOKENS = 4096
     
     # Model-specific token limits based on known model architectures (FALLBACK ONLY)
     # These are used only if auto-detection from /api/show fails
@@ -247,6 +249,14 @@ class OllamaAdapter(BaseModelAdapter):
         )
         return default_tokens
 
+    def get_suggested_generation_tokens(self) -> int:
+        """Return a safe default for UI generation length, not the full context window."""
+        hard_cap = self._get_model_max_tokens()
+        return max(
+            self.DEFAULT_SUGGESTED_GENERATION_TOKENS,
+            min(hard_cap, self.MAX_SUGGESTED_GENERATION_TOKENS),
+        )
+
     def generate(self, prompt: str, temperature: float, max_tokens: int) -> GenerationResult:
         self.validate_generation_params(prompt, temperature, max_tokens)
 
@@ -271,11 +281,14 @@ class OllamaAdapter(BaseModelAdapter):
         if "<patch>" in prompt:
             # Stop once the model closes the patch; extraction already keeps the first patch.
             stop_sequences = ["</patch>"]
+
+        think_enabled = os.environ.get("OLLAMA_THINK", "").strip().lower() in {"1", "true", "yes", "on"}
         
         payload: Dict[str, Any] = {
             "model": self.model_name,
             "prompt": prompt,
             "stream": False,
+            "think": think_enabled,
             "options": {
                 "temperature": temperature,
                 "num_predict": max_tokens,

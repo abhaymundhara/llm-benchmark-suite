@@ -461,16 +461,29 @@ def main() -> None:
     
     # Get model-specific max_tokens for Ollama models
     suggested_max_tokens = 2048  # Default
+    raw_model_max_tokens = None
     if model_provider == "ollama" and model_name:
         from models.ollama_adapter import OllamaAdapter
         try:
             adapter = OllamaAdapter(model_name)
-            suggested_max_tokens = adapter._get_model_max_tokens()
+            raw_model_max_tokens = adapter._get_model_max_tokens()
+            suggested_max_tokens = adapter.get_suggested_generation_tokens()
         except Exception:
             suggested_max_tokens = 2048
 
     selected_model_key = (model_provider, model_name)
-    if st.session_state.get("last_model_key") != selected_model_key:
+    current_max_tokens = st.session_state.get("max_tokens")
+    should_reset_tokens = st.session_state.get("last_model_key") != selected_model_key
+    if (
+        not should_reset_tokens
+        and model_provider == "ollama"
+        and raw_model_max_tokens is not None
+        and current_max_tokens == raw_model_max_tokens
+        and raw_model_max_tokens > suggested_max_tokens
+    ):
+        should_reset_tokens = True
+
+    if should_reset_tokens:
         st.session_state["last_model_key"] = selected_model_key
         st.session_state["max_tokens"] = suggested_max_tokens
     
@@ -487,6 +500,8 @@ def main() -> None:
     # Show info if using recommended value for Ollama
     if model_provider == "ollama" and max_tokens == suggested_max_tokens and suggested_max_tokens > 2048:
         st.sidebar.success(f"✓ Using optimized {suggested_max_tokens} tokens for {model_name}")
+    elif model_provider == "ollama" and max_tokens > 8192:
+        st.sidebar.warning("Very large max token values will make local benchmark runs much slower.")
 
     st.sidebar.markdown("---")
     

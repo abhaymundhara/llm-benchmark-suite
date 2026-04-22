@@ -6,12 +6,9 @@ import logging
 from typing import Callable, Dict, Iterable, Type, Union
 
 from .base import Benchmark
-from .bigcodebench import BigCodeBenchmark
-from .humaneval import HumanEvalBenchmark
-from .mbpp import MBPPBenchmark
-from .swe_bench import SWEBenchDemo
-from .swe_bench_full import SWEBenchFull
-from .swe_bench_official import SWEBenchOfficial
+from utils.runtime_compat import patch_importlib_metadata_version
+
+patch_importlib_metadata_version()
 
 logger = logging.getLogger(__name__)
 
@@ -41,14 +38,48 @@ class BenchmarkRegistry:
 # Factory functions for BigCodeBench variants
 def _create_bigcodebench_instruct(**kwargs):
     """Create BigCodeBench with instruct split (natural language instructions)."""
+    from .bigcodebench import BigCodeBenchmark
+
     kwargs.setdefault('split', 'instruct')
     return BigCodeBenchmark(**kwargs)
 
 
 def _create_bigcodebench_complete(**kwargs):
     """Create BigCodeBench with complete split (comprehensive docstrings)."""
+    from .bigcodebench import BigCodeBenchmark
+
     kwargs.setdefault('split', 'complete')
     return BigCodeBenchmark(**kwargs)
+
+
+def _create_humaneval(**kwargs):
+    from .humaneval import HumanEvalBenchmark
+
+    return HumanEvalBenchmark(**kwargs)
+
+
+def _create_mbpp(**kwargs):
+    from .mbpp import MBPPBenchmark
+
+    return MBPPBenchmark(**kwargs)
+
+
+def _create_swe_bench_demo(**kwargs):
+    from .swe_bench import SWEBenchDemo
+
+    return SWEBenchDemo(**kwargs)
+
+
+def _create_swe_bench_full(**kwargs):
+    from .swe_bench_full import SWEBenchFull
+
+    return SWEBenchFull(**kwargs)
+
+
+def _create_swe_bench_official(**kwargs):
+    from .swe_bench_official import SWEBenchOfficial
+
+    return SWEBenchOfficial(**kwargs)
 
 
 registry = BenchmarkRegistry()
@@ -57,19 +88,13 @@ registry.register("bigcodebench", _create_bigcodebench_instruct)
 registry.register("bigcodebench_instruct", _create_bigcodebench_instruct)
 registry.register("bigcodebench_complete", _create_bigcodebench_complete)
 # Other benchmarks
-registry.register("human_eval", HumanEvalBenchmark)
-registry.register("mbpp", MBPPBenchmark)
-registry.register("swe_bench_demo", SWEBenchDemo)
-registry.register("swe_bench_full", SWEBenchFull)
-registry.register("swe_bench_official", SWEBenchOfficial)
+registry.register("human_eval", _create_humaneval)
+registry.register("mbpp", _create_mbpp)
+registry.register("swe_bench_demo", _create_swe_bench_demo)
+registry.register("swe_bench_full", _create_swe_bench_full)
+registry.register("swe_bench_official", _create_swe_bench_official)
 
 __all__ = [
     "Benchmark",
-    "BigCodeBenchmark",
     "registry",
-    "HumanEvalBenchmark",
-    "MBPPBenchmark",
-    "SWEBenchDemo",
-    "SWEBenchFull",
-    "SWEBenchOfficial",
 ]

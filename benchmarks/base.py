@@ -348,13 +348,29 @@ class Benchmark(abc.ABC):
         except subprocess.TimeoutExpired:
             logger.warning("Evaluation timed out for task %s", task.task_id)
             if failure_category == "success":
-                failure_category = "timeout"
+                failure_category = self._categorize_timeout_result(task, executed_code)
             return False, None, None, "Evaluation timed out.", executed_code, tests_code, failure_category
         except Exception as exc:  # pylint: disable=broad-except
             logger.exception("Evaluation failed for task %s: %s", task.task_id, exc)
             if failure_category == "success":
                 failure_category = "runtime_error"
             return False, None, None, f"Evaluation error: {exc}", executed_code, tests_code, failure_category
+
+    @staticmethod
+    def _categorize_timeout_result(task: BenchmarkTask, executed_code: str) -> str:
+        """
+        Distinguish genuine infrastructure timeouts from obviously non-terminating model code.
+        """
+        if executed_code:
+            # Common failure pattern: helper generators default to infinity and are then eagerly materialized.
+            if (
+                "float('inf')" in executed_code
+                and "while " in executed_code
+                and "generate_fib()" in executed_code
+            ):
+                return "model_algorithm"
+
+        return "timeout"
     
     @staticmethod
     def _categorize_extraction(completion: str, extracted_code: str, entry_point: Optional[str]) -> str:
@@ -610,8 +626,7 @@ class Benchmark(abc.ABC):
         """Extract code from markdown-style code blocks (```python ... ```)."""
         # Match various markdown fence patterns
         patterns = [
-            r"```python\s*(.*?)```",  # ```python
-            r"```py\s*(.*?)```",      # ```py
+            r"```(?:python|py)\b\s*(.*?)```",  # ```python / ```py
             r"```\s*(.*?)```",        # ``` (generic)
         ]
         
@@ -622,18 +637,20 @@ class Benchmark(abc.ABC):
             for match in matches:
                 # Properly dedent and strip the code
                 dedented = textwrap.dedent(match)
-                stripped = dedented.strip()
+                stripped = Benchmark._strip_language_tags(dedented.strip())
                 
                 # Filter out blocks that are just docstring text (no actual code)
-                if stripped and Benchmark._contains_actual_code(stripped):
+                has_top_level_def = bool(
+                    re.search(r'^\s*(?:def|class|async def)\s+\w+', stripped, re.MULTILINE)
+                )
+                if stripped and (has_top_level_def or Benchmark._contains_actual_code(stripped)):
                     all_blocks.append(stripped)
         
         # Handle incomplete code blocks (missing closing fence)
         if not all_blocks:
             # Check if there's an opening fence without a closing one
             incomplete_patterns = [
-                r"```python\s*(.*)",  # ```python to end of string
-                r"```py\s*(.*)",      # ```py to end of string
+                r"```(?:python|py)\b\s*(.*)",  # ```python / ```py to end of string
                 r"```\s*(.*)",        # ``` to end of string (least specific)
             ]
             
@@ -644,7 +661,7 @@ class Benchmark(abc.ABC):
                     code = match.group(1)
                     # Clean up the incomplete code
                     dedented = textwrap.dedent(code)
-                    stripped = dedented.strip()
+                    stripped = Benchmark._strip_language_tags(dedented.strip())
                     
                     # Remove incomplete trailing lines (usually truncated comments or strings)
                     lines = stripped.split('\n')
@@ -690,7 +707,10 @@ class Benchmark(abc.ABC):
                             stripped = '\n'.join(lines).strip()
                     
                     # Only add if it contains actual code
-                    if stripped and Benchmark._contains_actual_code(stripped):
+                    has_top_level_def = bool(
+                        re.search(r'^\s*(?:def|class|async def)\s+\w+', stripped, re.MULTILINE)
+                    )
+                    if stripped and (has_top_level_def or Benchmark._contains_actual_code(stripped)):
                         all_blocks.append(stripped)
                         break  # Only take the first incomplete block we find
         
@@ -890,7 +910,8 @@ class Benchmark(abc.ABC):
             
             # Start capturing on Python keywords or entry point
             if not capture and (
-                re.match(r"^(def |class |from |import |@|if __name__ ==)", stripped)
+                re.match(r"^(def |class |import |@|if __name__ ==)", stripped)
+                or re.match(r"^from\s+[A-Za-z_][\w.]*\s+import\b", stripped)
                 or (entry_point and re.match(rf"\s*def\s+{re.escape(entry_point)}\s*\(", stripped))
             ):
                 capture = True
@@ -1049,7 +1070,7 @@ class Benchmark(abc.ABC):
                 re.match(r'^from\s+\w+\s+import\s+', stripped) or  # from module import
                 re.match(r'^import\s+\w+', stripped) or  # import module
                 stripped.startswith(('return ', 'if ', 'for ', 'while ', 'with ', 'try:', 'except', 'finally:', 'elif ', 'else:', '@', 'raise ', 'assert ', 'yield ', 'pass', 'break', 'continue'))
-                or '=' in stripped  # Assignment
+                or re.match(r'^[a-zA-Z_]\w*\s*[+\-*/&|^%]?=', stripped)  # Assignment
                 or (stripped.endswith(':') and len(stripped) < 50)  # Block start (not prose ending with colon)
                 or re.match(r'^\s*[a-zA-Z_]\w*\s*\(', stripped)  # Function call
             )
@@ -1099,6 +1120,10 @@ class Benchmark(abc.ABC):
         )
         
         if not looks_like_body:
+            return code
+
+        # Avoid wrapping plain-English reasoning into a synthetic function body.
+        if not Benchmark._contains_actual_code(code):
             return code
         
         # Extract function signature from prompt
@@ -1261,16 +1286,23 @@ class Benchmark(abc.ABC):
         
         result_lines = []
         function_stack = []  # Stack to track nested functions/classes
+        skip_block_indent: Optional[int] = None
         
         for i, line in enumerate(lines):
             stripped = line.strip()
+            current_indent = len(line) - len(line.lstrip())
+
+            if skip_block_indent is not None:
+                if not stripped:
+                    continue
+                if current_indent > skip_block_indent:
+                    continue
+                skip_block_indent = None
             
             # Always keep blank lines
             if not stripped:
                 result_lines.append(line)
                 continue
-            
-            current_indent = len(line) - len(line.lstrip())
             
             # Track function/class definitions
             if stripped.startswith('def ') or stripped.startswith('class ') or stripped.startswith('async def '):
@@ -1297,6 +1329,11 @@ class Benchmark(abc.ABC):
             # Keep decorators
             if stripped.startswith('@'):
                 result_lines.append(line)
+                continue
+
+            # Skip common example/test harness blocks at module level.
+            if re.match(r'^if\s+__name__\s*==\s*[\'"]__main__[\'"]\s*:\s*$', stripped):
+                skip_block_indent = current_indent
                 continue
             
             # Skip module-level test code:
@@ -1403,7 +1440,16 @@ class Benchmark(abc.ABC):
             stripped = line.strip()
             if not stripped or stripped.startswith("#"):
                 continue
-            if stripped.startswith("import ") or stripped.startswith("from "):
+            is_import = bool(
+                re.match(r"^import\s+[A-Za-z_][\w.]*(\s+as\s+[A-Za-z_]\w*)?$", stripped)
+                or re.match(
+                    r"^from\s+[A-Za-z_][\w.]*\s+import\s+"
+                    r"(\*|[A-Za-z_]\w*(\s+as\s+[A-Za-z_]\w*)?"
+                    r"(\s*,\s*[A-Za-z_]\w*(\s+as\s+[A-Za-z_]\w*)?)*)$",
+                    stripped,
+                )
+            )
+            if is_import:
                 if stripped not in seen:
                     imports.append(stripped)
                     seen.add(stripped)

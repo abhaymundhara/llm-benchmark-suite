@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import logging
+import re
 from typing import Iterable, List, Optional
 
 from datasets import Dataset, load_dataset
@@ -50,7 +51,7 @@ class MBPPBenchmark(Benchmark):
             else:
                 tests = str(tests_list)
 
-            entry_point = self._extract_entry_point(code)
+            entry_point = self._extract_entry_point_from_tests(tests) or self._extract_entry_point(code)
             task_id = record.get("task_id") or f"mbpp_{self.split}_{idx}"
             tasks.append(
                 BenchmarkTask(
@@ -82,6 +83,19 @@ class MBPPBenchmark(Benchmark):
         for node in tree.body:
             if isinstance(node, ast.FunctionDef):
                 return node.name
+        return None
+
+    @staticmethod
+    def _extract_entry_point_from_tests(tests: str) -> Optional[str]:
+        """
+        Prefer the callable asserted in MBPP tests, which reflects the expected API.
+        """
+        if not tests:
+            return None
+
+        match = re.search(r"^\s*assert\s+([A-Za-z_]\w*)\s*\(", tests, re.MULTILINE)
+        if match:
+            return match.group(1)
         return None
 
     @staticmethod
