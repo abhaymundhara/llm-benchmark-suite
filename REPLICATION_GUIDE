@@ -1,0 +1,105 @@
+# REPLICATION_GUIDE
+
+This guide describes how to repeat and reproduce benchmark runs and reporting outputs.
+
+## 1) Scope of replication
+
+The artifact supports replication of model-vs-benchmark evaluation campaigns with:
+
+- standardized prompt and evaluation flow,
+- pass-rate and failure-category reporting,
+- latency and token usage summaries,
+- report export to JSON and text summaries in `reports/`.
+
+## 2) Data and provenance
+
+Benchmarks are loaded from public benchmark ecosystems (via project benchmark modules), including:
+
+- HumanEval
+- MBPP
+- BigCodeBench
+- SWE-bench variants
+
+Notes:
+
+- Upstream datasets may evolve over time.
+- For strict reproducibility, keep benchmark key, model tag/version, and task ranges fixed.
+
+## 3) Ethical and legal notes
+
+- Do not submit or expose proprietary source code to third-party APIs without authorization.
+- Review dataset/provider licenses and terms before redistribution.
+- SWE-bench workflows involve repository-level code and Dockerized execution; ensure compliance with licenses and local policy.
+
+## 4) Storage and runtime planning
+
+- Lightweight runs (HumanEval/MBPP subsets): modest CPU/RAM, low storage.
+- Full BigCodeBench and SWE-bench workflows: significantly higher runtime and storage.
+- SWE-bench replication usually requires substantial Docker disk space.
+
+## 5) Reproducibility controls
+
+To reduce variance:
+
+- Keep `temperature` fixed (e.g., 0.2).
+- Keep `max_tokens` fixed across compared runs.
+- Keep benchmark key and task range fixed (`start_index`, `end_index`, or `limit`).
+- Use consistent model/provider identifiers.
+- Record the generated report filenames and timestamps.
+
+## 6) Running a reproducible campaign (programmatic runner)
+
+Example script:
+
+```bash
+python - <<'PY'
+from runner import BenchmarkRunner, RunConfig, GenerationConfig
+
+runner = BenchmarkRunner(reports_dir="reports")
+
+config = RunConfig(
+    model_provider="ollama",          # or: openai / anthropic / gemini
+    model_name="qwen2.5-coder:7b",    # set to your exact model tag
+    benchmark_key="human_eval",       # or mbpp / bigcodebench_instruct / swe_bench_*
+    limit=100,
+    start_index=None,
+    end_index=None,
+    generation=GenerationConfig(
+        temperature=0.2,
+        max_tokens=512,
+    ),
+)
+
+report = runner.run(config)
+print("Pass rate:", report.metrics.get("pass_rate"))
+print("Total tasks:", report.metrics.get("total_tasks"))
+print("Reports:", runner.last_report_paths)
+PY
+```
+
+Expected outputs:
+
+- Console progress and final summary
+- A JSON report in `reports/`
+- A `_summary.txt` report in `reports/`
+
+## 7) Replicating comparisons from saved runs
+
+1. Execute each model/benchmark pair with identical settings.
+2. Keep one run directory (`reports/`) per experiment batch.
+3. Compare runs in the Streamlit UI using the run-comparison view.
+
+## 8) Minimal replication checklist
+
+- [ ] Python dependencies installed from pinned `requirements.txt`
+- [ ] Docker validated when running SWE-bench paths
+- [ ] Model/provider and model version recorded
+- [ ] Benchmark key and task range recorded
+- [ ] Temperature and max_tokens fixed
+- [ ] Output reports archived (`*.json`, `*_summary.txt`)
+
+## 9) Troubleshooting
+
+- If Streamlit fails to start: recheck environment and `pip install -r requirements.txt`.
+- If Docker-based evaluations fail: run `bash setup_docker.sh` and verify daemon health.
+- If model generation fails: verify API keys (cloud) or model availability/service status (Ollama).

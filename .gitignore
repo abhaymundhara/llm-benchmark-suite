@@ -95,10 +95,8 @@ swebench_reports/
 *.log.*
 
 # All test files (keep only production code)
-test_*.py
-*_test.py
 test.py
-tests/
+tests/__pycache__
 
 # Debug files (development only)
 debug_*.py

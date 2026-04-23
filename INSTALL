@@ -1,0 +1,85 @@
+# INSTALL
+
+This guide installs and validates the llm-benchmark-suite artifact.
+
+## 1) Clone and enter the repository
+
+```bash
+git clone https://github.com/abhaymundhara/llm-benchmark-suite.git
+cd llm-benchmark-suite
+```
+
+## 2) Create and activate a Python environment
+
+macOS / Linux:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+```
+
+## 3) Install Python dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+## 4) Configure provider credentials (if using cloud APIs)
+
+```bash
+export OPENAI_API_KEY="your-key"
+export ANTHROPIC_API_KEY="your-key"
+export GOOGLE_API_KEY="your-key"
+```
+
+You may place these in a local `.env` file if desired.
+
+## 5) Optional: prepare Docker for SWE-bench
+
+```bash
+bash setup_docker.sh
+```
+
+Expected output includes:
+
+- Docker version information
+- "Docker daemon is reachable."
+- "Docker environment check completed successfully."
+
+## 6) Optional: local model setup with Ollama
+
+```bash
+ollama pull qwen2.5-coder:7b
+```
+
+## 7) Smoke test (installation verification)
+
+Run this command:
+
+```bash
+python - <<'PY'
+from runner import BenchmarkRunner
+r = BenchmarkRunner()
+print("Providers:", sorted(r.list_model_providers()))
+print("Benchmarks:", sorted(r.list_benchmarks()))
+PY
+```
+
+Successful output should print non-empty provider and benchmark lists.
+
+## 8) Basic usage example
+
+Start the dashboard:
+
+```bash
+bash run.sh
+```
+
+Expected behavior:
+
+- Terminal prints "Starting Streamlit application..."
+- Streamlit starts without import errors
+- Browser opens a page titled "LLM Benchmark Dashboard"
+
+This confirms the project is installed and operational.

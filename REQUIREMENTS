@@ -1,0 +1,93 @@
+# REQUIREMENTS
+
+This file specifies environment requirements for running the llm-benchmark-suite artifact.
+
+## 1) Hardware Requirements
+
+### Minimum (HumanEval / MBPP, small runs)
+
+- CPU: 4 physical cores (x86_64 or ARM64)
+- RAM: 8 GB
+- Storage: 10 GB free
+- Network: stable internet (for model APIs and dataset downloads)
+
+### Recommended (regular benchmark use)
+
+- CPU: 8+ cores
+- RAM: 16-32 GB
+- Storage: 50+ GB free
+- Network: broadband connection
+
+### SWE-bench / container-heavy runs
+
+- CPU: 8+ cores recommended
+- RAM: 32 GB recommended
+- Storage: 120+ GB free (Docker images + temporary build layers + reports)
+- Docker daemon must be available and healthy
+
+### Optional non-commodity hardware
+
+- NVIDIA GPU (8+ GB VRAM) can help local model inference performance when using local backends outside API-only workflows.
+- GPU is not required for cloud-provider evaluation.
+
+## 2) Software Environment Requirements
+
+## Operating Systems
+
+- macOS 13+
+- Ubuntu 22.04+ (or similar modern Linux distribution)
+- Windows users should use WSL2 for best compatibility
+
+## Core Runtime
+
+- Python 3.10 or 3.11
+- pip 23+
+- git
+
+## Container / virtualization
+
+- Docker Engine 24+ (or Docker Desktop equivalent)
+- VM usage is supported, provided Docker and Python requirements are met
+
+## Local model runtime (optional)
+
+- Ollama (for local model benchmarking)
+
+## 3) Python Dependency Requirements (pinned)
+
+The project includes explicit versions in requirements.txt for reproducibility:
+
+- streamlit==1.29.0
+- pandas==2.1.4
+- requests==2.31.0
+- python-dotenv==1.0.1
+- openai==1.12.0
+- anthropic==0.25.9
+- google-generativeai==0.5.4
+- datasets==2.16.1
+- plotly==5.18.0
+
+## 4) Credentials and External Services
+
+Depending on provider, set API credentials:
+
+- OPENAI_API_KEY
+- ANTHROPIC_API_KEY
+- GOOGLE_API_KEY
+
+For local models with Ollama:
+
+- Ensure Ollama service is installed and running
+- Pull required model tags before execution
+
+## 5) Storage and Output Expectations
+
+Generated artifacts are written under:
+
+- reports/ (JSON and summary files)
+- logs/ (if configured)
+
+Typical storage footprint:
+
+- Light experiments: < 1 GB
+- Multiple benchmark campaigns: several GB
